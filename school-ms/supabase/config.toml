@@ -1,0 +1,18 @@
+# Supabase CLI configuration (used by `supabase link`, `supabase db push`, `supabase functions deploy`).
+project_id = "school-ms"
+
+[api]
+schemas = ["public"]
+extra_search_path = ["public", "extensions"]
+
+[auth]
+site_url = "http://localhost:5173"
+additional_redirect_urls = ["http://localhost:5173/set-password"]
+enable_signup = false            # accounts are created by invitation only
+
+[auth.email]
+enable_signup = false
+enable_confirmations = true
+
+[functions.invite-user]
+verify_jwt = true
