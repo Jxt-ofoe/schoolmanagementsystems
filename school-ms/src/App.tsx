@@ -30,6 +30,9 @@ const ReportsPage = lazy(() => import('./pages/school/Reports'));
 const SchoolSettingsPage = lazy(() => import('./pages/school/Settings'));
 // teacher + shared
 const TeacherDashboard = lazy(() => import('./pages/teacher/Dashboard'));
+const TeacherStudentsPage = lazy(() => import('./pages/teacher/TeacherStudents'));
+const TeacherAttendancePage = lazy(() => import('./pages/teacher/TeacherAttendance'));
+const TeacherGradesPage = lazy(() => import('./pages/teacher/TeacherGrades'));
 const TeacherClassPage = lazy(() => import('./pages/teacher/ClassView'));
 const TakeAttendancePage = lazy(() => import('./pages/shared/TakeAttendance'));
 const GradeEntryPage = lazy(() => import('./pages/shared/GradeEntry'));
@@ -69,6 +72,9 @@ export function App() {
           <Route path="school/audit" element={<Navigate to="/school" replace />} />
 
           <Route path="teach" element={<RequireRole need="teacher"><TeacherDashboard /></RequireRole>} />
+          <Route path="teach/students" element={<RequireRole need="teacher"><TeacherStudentsPage /></RequireRole>} />
+          <Route path="teach/attendance" element={<RequireRole need="teacher"><TeacherAttendancePage /></RequireRole>} />
+          <Route path="teach/grades" element={<RequireRole need="teacher"><TeacherGradesPage /></RequireRole>} />
           <Route path="teach/class/:classId" element={<RequireRole need="teacher"><TeacherClassPage /></RequireRole>} />
           <Route path="attendance/:classId" element={<RequireRole need="teacher"><TakeAttendancePage /></RequireRole>} />
           <Route path="grades/:classId/:subjectId" element={<RequireRole need="teacher"><GradeEntryPage /></RequireRole>} />

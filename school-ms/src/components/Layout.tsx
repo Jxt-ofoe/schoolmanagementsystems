@@ -55,6 +55,9 @@ function navFor(isSuperAdmin: boolean, role: string | undefined): { section: str
   if (role === 'teacher') {
     sections.push({ section: 'Teaching', items: [
       { to: '/teach', label: 'My dashboard', icon: icons.home, end: true },
+      { to: '/teach/students', label: 'My students', icon: icons.users },
+      { to: '/teach/attendance', label: 'Attendance', icon: icons.check },
+      { to: '/teach/grades', label: 'Grades', icon: icons.chart },
     ] });
   }
   return sections;
