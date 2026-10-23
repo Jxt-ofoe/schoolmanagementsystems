@@ -12,7 +12,7 @@ export default function AdminSettings() {
   const settings = usePlatformSettings();
   const qc = useQueryClient();
   const toast = useToast();
-  const [v, setV] = useState({ price_per_student: '2.00', billing_due_days: '30', void_grace_days: '14' });
+  const [v, setV] = useState({ price_per_student: '5.00', billing_due_days: '30', void_grace_days: '14' });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [confirm, setConfirm] = useState(false);
   useEffect(() => {

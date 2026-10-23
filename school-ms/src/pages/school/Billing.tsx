@@ -27,12 +27,12 @@ export default function SchoolBillingPage() {
     queryFn: () => unwrap<number>(supabase.rpc('billable_student_count', { p_semester_id: current!.id })),
   });
   const currentBill = bills.data?.find((b) => b.semester_id === current?.id);
-  const price = Number(currentBill?.price_per_student ?? settings.data?.price_per_student ?? 2);
+  const price = Number(currentBill?.price_per_student ?? settings.data?.price_per_student ?? 5);
   const estimate = summarize(liveCount.data ?? 0, price, Number(currentBill?.amount_paid ?? 0));
 
   return (
     <>
-      <PageHeader title="Billing" subtitle={`Your school pays ${formatMoney(settings.data?.price_per_student ?? 2)} per registered student per semester. Teachers never pay.`} />
+      <PageHeader title="Billing" subtitle={`Your school pays ${formatMoney(settings.data?.price_per_student ?? 5)} per registered student per semester. Teachers never pay.`} />
       {current && (
         <Card title={`Current semester · ${semesterLabel(current)}`}>
           <div className="stats">

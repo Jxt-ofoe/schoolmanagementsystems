@@ -22,7 +22,7 @@ grant usage on schema private to authenticated, service_role;
 -- -----------------------------------------------------------------------------
 create table public.platform_settings (
   id                 boolean primary key default true check (id),   -- singleton row
-  price_per_student  numeric(10,2) not null default 2.00 check (price_per_student >= 0),
+  price_per_student  numeric(10,2) not null default 5.00 check (price_per_student >= 0),
   currency           text not null default 'GHS' check (currency ~ '^[A-Z]{3}$'),
   billing_due_days   integer not null default 30 check (billing_due_days between 0 and 365),
   void_grace_days    integer not null default 14 check (void_grace_days between 0 and 90),

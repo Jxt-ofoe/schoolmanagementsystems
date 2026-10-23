@@ -21,7 +21,7 @@ export default function AdminDashboard() {
   const b = d.billing_current;
   return (
     <>
-      <PageHeader title="Platform overview" subtitle={`Current price: ${formatMoney(settings.data?.price_per_student ?? 2)} per registered student per semester`} />
+      <PageHeader title="Platform overview" subtitle={`Current price: ${formatMoney(settings.data?.price_per_student ?? 5)} per registered student per semester`} />
       {d.schools_without_billing > 0 && <Alert tone="warn"><span>{d.schools_without_billing} active school(s) have a current semester without a billing record.</span><Link to="/admin/billing">Generate billing →</Link></Alert>}
       <div className="stats">
         <StatCard label="Schools" value={d.schools_total} hint={`${d.schools_active} active · ${d.schools_inactive} inactive`} />
