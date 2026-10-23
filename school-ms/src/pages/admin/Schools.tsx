@@ -8,7 +8,7 @@ import { friendlyError } from '../../lib/errors';
 import { formatMoney, slugify } from '../../lib/format';
 import { useToast } from '../../lib/toast';
 import { invokeInvite } from '../school/Teachers';
-import { Alert, Badge, Button, Card, EmptyState, ErrorBox, Input, Modal, PageHeader, SearchBox, Select, Spinner } from '../../components/ui';
+import { Alert, Badge, Button, Card, EmptyState, ErrorBox, Input, Modal, PageHeader, Pagination, SearchBox, Select, Spinner } from '../../components/ui';
 
 export interface SchoolSummary {
   school_id: string; name: string; code: string; status: string; region: string | null; created_at: string; headmasters: string | null;
@@ -16,38 +16,48 @@ export interface SchoolSummary {
   billing_id: string | null; amount_due: number | null; amount_paid: number | null; balance: number | null;
 }
 
+const PAGE_SIZE = 20;
+
 export default function AdminSchools() {
   const navigate = useNavigate();
   const [q, setQ] = useState('');
   const [status, setStatus] = useState('');
+  const [page, setPage] = useState(0);
   const [creating, setCreating] = useState(false);
   const schools = useQuery({ queryKey: ['platform_schools'], queryFn: () => unwrap<SchoolSummary[]>(supabase.rpc('platform_school_summaries')) });
   const rows = (schools.data ?? []).filter((s) => (!status || s.status === status) && (!q || `${s.name} ${s.code} ${s.region ?? ''}`.toLowerCase().includes(q.toLowerCase())));
+  const paged = rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
   return (
     <>
       <PageHeader title="Schools" subtitle={`${schools.data?.length ?? '…'} schools on the platform`} actions={<Button onClick={() => setCreating(true)}>+ New school</Button>} />
       <Card padded={false}>
         <div className="filters" style={{ padding: '12px 16px 0' }}>
-          <SearchBox value={q} onChange={setQ} placeholder="Search by name, code or region" />
-          <Select label="Status" value={status} onChange={(e) => setStatus(e.target.value)}>
+          <SearchBox value={q} onChange={(val) => { setQ(val); setPage(0); }} placeholder="Search by name, code or region" />
+          <Select label="Status" value={status} onChange={(e) => { setStatus(e.target.value); setPage(0); }}>
             <option value="">All</option><option value="active">Active</option><option value="pending">Pending</option><option value="suspended">Suspended</option><option value="inactive">Inactive</option>
           </Select>
         </div>
         <ErrorBox error={schools.error} onRetry={() => schools.refetch()} />
         {schools.isLoading ? <Spinner /> : !rows.length ? <EmptyState title="No schools" action={!q && <Button onClick={() => setCreating(true)}>Add the first school</Button>} /> : (
-          <div className="table-wrap"><table>
-            <thead><tr><th>School</th><th>Headmaster</th><th className="num">Students</th><th className="num">Teachers</th><th>Current semester</th><th className="num">Registered</th><th className="num">Balance</th><th>Status</th></tr></thead>
-            <tbody>{rows.map((s) => (
-              <tr key={s.school_id} className="clickable" onClick={() => navigate(`/admin/schools/${s.school_id}`)}>
-                <td><Link to={`/admin/schools/${s.school_id}`} onClick={(e) => e.stopPropagation()}><strong>{s.name}</strong></Link><div className="muted small mono">{s.code}{s.region ? ` · ${s.region}` : ''}</div></td>
-                <td className="small">{s.headmasters ?? <span className="muted">None yet</span>}</td>
-                <td className="num">{s.students_active}</td><td className="num">{s.teachers}</td>
-                <td className="small">{s.current_semester ?? '—'}</td><td className="num">{s.registered_current}</td>
-                <td className="num">{s.billing_id ? formatMoney(s.balance) : <span className="muted small">not billed</span>}</td>
-                <td><Badge value={s.status} /></td>
-              </tr>))}
-            </tbody>
-          </table></div>
+          <>
+            <div className="table-wrap"><table>
+              <thead><tr><th>School</th><th>Headmaster</th><th className="num">Students</th><th className="num">Teachers</th><th>Current semester</th><th className="num">Registered</th><th className="num">Balance</th><th>Status</th></tr></thead>
+              <tbody>{paged.map((s) => (
+                <tr key={s.school_id} className="clickable" onClick={() => navigate(`/admin/schools/${s.school_id}`)}>
+                  <td><Link to={`/admin/schools/${s.school_id}`} onClick={(e) => e.stopPropagation()}><strong>{s.name}</strong></Link><div className="muted small mono">{s.code}{s.region ? ` · ${s.region}` : ''}</div></td>
+                  <td className="small">{s.headmasters ?? <span className="muted">None yet</span>}</td>
+                  <td className="num">{s.students_active}</td><td className="num">{s.teachers}</td>
+                  <td className="small">{s.current_semester ?? '—'}</td><td className="num">{s.registered_current}</td>
+                  <td className="num">{s.billing_id ? formatMoney(s.balance) : <span className="muted small">not billed</span>}</td>
+                  <td><Badge value={s.status} /></td>
+                </tr>))}
+              </tbody>
+            </table></div>
+            {rows.length > PAGE_SIZE && (
+              <Pagination page={page} pageSize={PAGE_SIZE} total={rows.length} onPage={setPage} />
+            )}
+          </>
         )}
       </Card>
       {creating && <CreateSchoolModal onClose={() => setCreating(false)} onCreated={(id) => navigate(`/admin/schools/${id}`)} />}
