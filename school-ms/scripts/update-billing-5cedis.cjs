@@ -1,7 +1,21 @@
 const { createClient } = require('@supabase/supabase-js');
 
-const SUPABASE_URL = 'https://simskpwdkbcudmgzjsib.supabase.co';
-const SERVICE_KEY = 'sb_secret_WIQRhbLScCi4Z8y4dJ2klg_tJVgB3SI';
+const fs = require('fs');
+const path = require('path');
+const envFile = path.resolve(__dirname, '../.env.local');
+if (fs.existsSync(envFile)) {
+  for (const line of fs.readFileSync(envFile, 'utf8').split('\n')) {
+    const [k, ...v] = line.trim().split('=');
+    if (k && v.length && !process.env[k]) process.env[k] = v.join('=').trim();
+  }
+}
+
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || 'https://simskpwdkbcudmgzjsib.supabase.co';
+const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+if (!SERVICE_KEY) {
+  console.error('SUPABASE_SERVICE_ROLE_KEY environment variable is not configured');
+  process.exit(1);
+}
 
 const supabase = createClient(SUPABASE_URL, SERVICE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },

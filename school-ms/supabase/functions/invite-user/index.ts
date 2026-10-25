@@ -22,7 +22,7 @@ export function validate(body: InviteBody): { email: string; full_name: string; 
   const full_name = typeof body.full_name === 'string' ? body.full_name.trim() : '';
   const role = body.role;
   const school_id = typeof body.school_id === 'string' ? body.school_id : '';
-  if (!EMAIL_RE.test(email) || email.length > 150) return 'A valid email address is required';
+  if (!EMAIL_RE.test(email) || email.includes('%') || email.includes('_') || email.length > 150) return 'A valid email address is required';
   if (full_name.length < 2 || full_name.length > 120) return 'Full name must be 2–120 characters';
   if (role !== 'headmaster' && role !== 'teacher') return 'Role must be headmaster or teacher';
   if (!UUID_RE.test(school_id)) return 'A valid school is required';
@@ -30,7 +30,7 @@ export function validate(body: InviteBody): { email: string; full_name: string; 
 }
 
 async function findUserIdByEmail(admin: SupabaseClient, email: string): Promise<string | null> {
-  const { data } = await admin.from('profiles').select('id').ilike('email', email).maybeSingle();
+  const { data } = await admin.from('profiles').select('id').eq('email', email).maybeSingle();
   return data?.id ?? null;
 }
 
@@ -92,6 +92,19 @@ export async function handler(req: Request): Promise<Response> {
     userId = data.user.id;
     outcome = 'invited';
     await admin.from('profiles').update({ full_name: input.full_name }).eq('id', userId);
+  } else {
+    // Security check: cannot invite or attach a platform administrator
+    const { data: targetAdmin } = await admin.from('platform_admins').select('user_id').eq('user_id', userId).maybeSingle();
+    if (targetAdmin) return json(req, { error: 'Platform Super Admins cannot be added as school staff' }, 403);
+
+    // Non-super-admins cannot attach an active headmaster from another school
+    if (!isSuperAdmin) {
+      const { data: hm } = await admin.from('school_memberships').select('school_id')
+        .eq('user_id', userId).eq('role', 'headmaster').eq('status', 'active').maybeSingle();
+      if (hm && hm.school_id !== input.school_id) {
+        return json(req, { error: 'Cannot attach an active Headmaster from another school' }, 403);
+      }
+    }
   }
 
   const { data: existing } = await admin.from('school_memberships').select('id, role, status')

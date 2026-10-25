@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 
 function adminApiPlugin() {
@@ -45,10 +45,15 @@ const localProxy = {
   '/_dev/mail': { target: 'http://127.0.0.1:8025', changeOrigin: true, rewrite: (p: string) => p.replace(/^\/_dev\/mail/, '') || '/' },
 };
 
-export default defineConfig({
-  plugins: [react(), adminApiPlugin()],
-  server: { host: '0.0.0.0', port: 5173, allowedHosts: true, proxy: localProxy },
-  preview: { host: '0.0.0.0', port: 5173, allowedHosts: true, proxy: localProxy },
-  build: { sourcemap: false, chunkSizeWarningLimit: 900 },
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '');
+  Object.assign(process.env, env);
+
+  return {
+    plugins: [react(), adminApiPlugin()],
+    server: { host: '0.0.0.0', port: 5173, allowedHosts: true, proxy: localProxy },
+    preview: { host: '0.0.0.0', port: 5173, allowedHosts: true, proxy: localProxy },
+    build: { sourcemap: false, chunkSizeWarningLimit: 900 },
+  };
 });
 
