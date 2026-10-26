@@ -136,3 +136,211 @@ export interface AuditLog {
   metadata: Record<string, unknown>;
   created_at: string;
 }
+
+export type ExaminationType = 'mid_term' | 'end_of_term' | 'mock' | 'class_test' | 'continuous_assessment' | 'other';
+export type ExaminationStatus = 'draft' | 'open' | 'submitted' | 'reviewed' | 'approved' | 'published';
+
+export interface Examination {
+  id: string;
+  school_id: string;
+  academic_year_id: string;
+  semester_id: string;
+  name: string;
+  exam_type: ExaminationType;
+  start_date: string | null;
+  end_date: string | null;
+  status: ExaminationStatus;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  classes?: { class_id: string }[];
+  subjects?: { subject_id: string }[];
+  academic_years?: { name: string } | null;
+  semesters?: { name: string } | null;
+}
+
+export type SubmissionStatus = 'draft' | 'submitted' | 'reviewed' | 'approved' | 'returned';
+
+export interface SubjectResultSubmission {
+  id: string;
+  school_id: string;
+  semester_id: string;
+  class_id: string;
+  subject_id: string;
+  examination_id: string | null;
+  status: SubmissionStatus;
+  submitted_by: string | null;
+  submitted_at: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  feedback: string | null;
+  teacher_name?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SchoolGradingConfig {
+  school_id: string;
+  pass_mark: number;
+  show_position: boolean;
+  tie_ranking_policy: 'dense' | 'standard' | 'none';
+  continuous_assessment_weight: number;
+  exam_weight: number;
+  conduct_options: string[];
+  attitude_options: string[];
+  interest_options: string[];
+  next_term_begins: string | null;
+  headmaster_remarks_template: string | null;
+  updated_at: string;
+}
+
+export interface TerminalReport {
+  id: string;
+  school_id: string;
+  student_id: string;
+  academic_year_id: string;
+  semester_id: string;
+  class_id: string;
+  examination_id: string | null;
+  status: 'draft' | 'reviewed' | 'approved' | 'published';
+  total_score: number;
+  average_score: number;
+  overall_grade: string | null;
+  position: number | null;
+  total_students: number;
+  subjects_count: number;
+  incomplete_subjects: number;
+  attendance_present: number;
+  attendance_absent: number;
+  attendance_total: number;
+  conduct: string | null;
+  attitude: string | null;
+  interest: string | null;
+  class_teacher_remarks: string | null;
+  headmaster_remarks: string | null;
+  promotion_recommendation: 'promoted' | 'promoted_on_probation' | 'repeat' | 'withdrawn' | 'graduated' | null;
+  next_class_id: string | null;
+  next_term_begins: string | null;
+  snapshot_data: Record<string, unknown>;
+  needs_regeneration: boolean;
+  published_at: string | null;
+  published_by: string | null;
+  created_at: string;
+  updated_at: string;
+  student?: Student;
+}
+
+export interface FeeCategory {
+  id: string;
+  school_id: string;
+  name: string;
+  description: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface FeeStructure {
+  id: string;
+  school_id: string;
+  academic_year_id: string;
+  semester_id: string;
+  class_id: string | null;
+  category_id: string;
+  name: string;
+  amount: number;
+  due_date: string | null;
+  created_at: string;
+  updated_at: string;
+  category?: FeeCategory;
+  class?: ClassRow;
+}
+
+export interface StudentFeeCharge {
+  id: string;
+  school_id: string;
+  student_id: string;
+  semester_id: string;
+  fee_structure_id: string | null;
+  category_id: string;
+  description: string;
+  amount: number;
+  discount_amount: number;
+  discount_reason: string | null;
+  net_amount: number;
+  created_by: string | null;
+  created_at: string;
+  category?: FeeCategory;
+}
+
+export type FeePaymentMethod = 'cash' | 'mobile_money' | 'bank_transfer' | 'cheque' | 'card' | 'other';
+
+export interface StudentFeePayment {
+  id: string;
+  school_id: string;
+  student_id: string;
+  semester_id: string;
+  receipt_number: string;
+  amount: number;
+  method: FeePaymentMethod;
+  reference: string | null;
+  paid_on: string;
+  notes: string | null;
+  status: 'valid' | 'reversed';
+  reversal_reason: string | null;
+  reversed_at: string | null;
+  reversed_by: string | null;
+  recorded_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StudentFeeStatement {
+  student_id: string;
+  total_charged: number;
+  total_discounted: number;
+  net_charged: number;
+  total_paid: number;
+  balance: number;
+  charges: StudentFeeCharge[];
+  payments: StudentFeePayment[];
+}
+
+export type PromotionDecision = 'promoted' | 'promoted_on_probation' | 'repeated' | 'graduated' | 'withdrawn';
+
+export interface StudentPromotion {
+  id: string;
+  school_id: string;
+  from_academic_year_id: string;
+  to_academic_year_id: string;
+  from_class_id: string;
+  to_class_id: string | null;
+  student_id: string;
+  decision: PromotionDecision;
+  notes: string | null;
+  promoted_by: string | null;
+  promoted_at: string;
+}
+
+export interface ConsolidatedSubjectResult {
+  subject_id: string;
+  subject_name: string;
+  total: number;
+  percentage: number | null;
+  grade: string | null;
+  remark: string | null;
+  scores_entered: number;
+  assessments_count: number;
+}
+
+export interface ConsolidatedStudentRow {
+  student_id: string;
+  admission_number: string;
+  student_name: string;
+  subject_results: ConsolidatedSubjectResult[];
+  overall_total?: number;
+  overall_average?: number | null;
+  overall_grade?: string | null;
+  position?: number | null;
+  is_incomplete?: boolean;
+}
+

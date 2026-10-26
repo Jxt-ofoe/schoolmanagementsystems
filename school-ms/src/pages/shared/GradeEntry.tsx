@@ -6,7 +6,7 @@ import { useAuth } from '../../lib/auth';
 import { semesterLabel, unwrap, useGradeBands, useSemesters } from '../../lib/queries';
 import { assessmentSchema, fieldErrors } from '../../lib/validation';
 import { computeResult, remainingWeight, validateScore } from '../../lib/grades';
-import { classLabel, humanize } from '../../lib/format';
+import { classLabel, formatDate, humanize } from '../../lib/format';
 import { friendlyError } from '../../lib/errors';
 import { downloadCsv } from '../../lib/csv';
 import { useToast } from '../../lib/toast';
@@ -132,6 +132,55 @@ export default function GradeEntryPage() {
       return { ...row, total: r.total, percentage: r.percentage ?? '', grade: r.grade ?? '' };
     }));
 
+  // Fetch submission status for this class and subject
+  const submissionQuery = useQuery({
+    queryKey: ['subject_submission', classId, subjectId, semesterId],
+    enabled: !!classId && !!subjectId && !!semesterId,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('subject_result_submissions')
+        .select('*')
+        .eq('class_id', classId!)
+        .eq('subject_id', subjectId!)
+        .eq('semester_id', semesterId)
+        .maybeSingle();
+      return data as { id: string; status: string; feedback: string | null; submitted_at: string | null } | null;
+    },
+  });
+
+  const submitMarksMutation = useMutation({
+    mutationFn: async () => {
+      // First save dirty cells if any
+      if (dirtyKeys.length > 0) {
+        await save.mutateAsync();
+      }
+
+      const payload = {
+        school_id: schoolId,
+        semester_id: semesterId,
+        class_id: classId!,
+        subject_id: subjectId!,
+        status: 'submitted',
+        submitted_by: (await supabase.auth.getUser()).data.user?.id,
+        submitted_at: new Date().toISOString(),
+      };
+
+      const { error } = await supabase
+        .from('subject_result_submissions')
+        .upsert(payload, { onConflict: 'semester_id, class_id, subject_id, examination_id' });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast('Marks submitted for review! The class teacher and headmaster can now see your submitted grades.');
+      qc.invalidateQueries({ queryKey: ['subject_submission', classId, subjectId] });
+      qc.invalidateQueries({ queryKey: ['subject_submissions_class'] });
+    },
+    onError: (err) => toast(friendlyError(err), 'error'),
+  });
+
+  const submissionStatus = submissionQuery.data?.status ?? 'draft';
+  const isApproved = submissionStatus === 'approved';
+
   return (
     <>
       <PageHeader back={<Link to={backTo}>← Back</Link>} title={`${subj.name} · ${classLabel(cls)}`}
@@ -141,6 +190,48 @@ export default function GradeEntryPage() {
             {semesters.data?.map((s) => <option key={s.id} value={s.id}>{semesterLabel(s)}</option>)}
           </Select>
         </>} />
+
+      {/* Submission Status Banner */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: '#fff', border: '1px solid var(--line)', borderRadius: 'var(--radius)', gap: 12, flexWrap: 'wrap' }}>
+          <div>
+            <strong>Mark Submission Status: </strong>
+            <Badge tone={isApproved ? 'good' : submissionStatus === 'submitted' ? 'info' : submissionStatus === 'returned' ? 'danger' : 'warn'}>
+              {submissionStatus.toUpperCase()}
+            </Badge>
+            {isApproved && <span className="small muted" style={{ marginLeft: 8 }}>(Approved by Administration)</span>}
+            {submissionQuery.data?.submitted_at && (
+              <span className="small muted" style={{ marginLeft: 8 }}>
+                Submitted on {formatDate(submissionQuery.data.submitted_at)}
+              </span>
+            )}
+            {submissionQuery.data?.feedback && (
+              <div style={{ marginTop: 4, color: 'var(--amber)', fontSize: '0.85rem' }}>
+                Feedback: {submissionQuery.data.feedback}
+              </div>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => save.mutate()}
+              loading={save.isPending}
+              disabled={!dirtyKeys.length}
+            >
+              Save Draft ({dirtyKeys.length})
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => submitMarksMutation.mutate()}
+              loading={submitMarksMutation.isPending}
+            >
+              {submissionStatus === 'submitted' ? 'Re-Submit Completed Marks' : 'Submit Marks to Class Teacher'}
+            </Button>
+          </div>
+        </div>
+      </div>
+
       {!semesterId ? <Alert tone="warn">No current semester. Ask the headmaster to set one up.</Alert> : (
         <>
           <Card title="Assessments" actions={<Button size="sm" onClick={() => setEditing('new')} disabled={totalWeight >= 100}>+ Add assessment</Button>}>

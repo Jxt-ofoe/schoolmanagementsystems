@@ -1,4 +1,4 @@
-import { computeResult, gradeFor, remainingWeight, validateScore } from '../grades';
+import { computePositions, computeResult, gradeFor, remainingWeight, validateScore } from '../grades';
 
 const bands = [
   { min_score: 80, grade: 'A', remark: 'Excellent' }, { min_score: 70, grade: 'B', remark: 'Very good' },
@@ -62,3 +62,80 @@ describe('remainingWeight', () => {
   it('is 100 minus existing weights', () => expect(remainingWeight(list)).toBe(24.5));
   it('excludes the assessment being edited', () => expect(remainingWeight(list, 'b')).toBe(70));
 });
+
+describe('computeResult with absent / exempted / missing', () => {
+  const list = [
+    { id: 'cw', max_score: 20, weight: 30 },
+    { id: 'ex', max_score: 100, weight: 70 },
+  ];
+
+  it('handles absent student by counting 0 and tracking absent count', () => {
+    const r = computeResult(list, {
+      cw: { score: 15, status: 'present' },
+      ex: { score: null, status: 'absent' },
+    }, bands);
+    expect(r.total).toBe(22.5);
+    expect(r.absentCount).toBe(1);
+    expect(r.complete).toBe(true);
+  });
+
+  it('normalizes weight when an assessment is exempted', () => {
+    const r = computeResult(list, {
+      cw: { score: 18, status: 'present' },
+      ex: { score: null, status: 'exempted' },
+    }, bands);
+    // cw is 18/20 * 30 = 27. Ex is exempted, so total weight is 30. Percentage is 27/30 * 100 = 90%
+    expect(r.total).toBe(27);
+    expect(r.weightTotal).toBe(30);
+    expect(r.percentage).toBe(90);
+    expect(r.grade).toBe('A');
+    expect(r.exemptedCount).toBe(1);
+    expect(r.complete).toBe(true);
+  });
+
+  it('flags missing assessments as incomplete', () => {
+    const r = computeResult(list, {
+      cw: { score: 15, status: 'present' },
+      ex: { score: null, status: 'missing' },
+    }, bands);
+    expect(r.hasMissing).toBe(true);
+    expect(r.complete).toBe(false);
+  });
+});
+
+describe('computePositions', () => {
+  it('computes dense positions correctly (ties share rank, subsequent incremented by 1)', () => {
+    const students = [
+      { id: 's1', score: 85 },
+      { id: 's2', score: 92 },
+      { id: 's3', score: 85 },
+      { id: 's4', score: 70 },
+    ];
+    const ranked = computePositions(students, 'dense');
+    expect(ranked.find((s) => s.id === 's2')?.position).toBe(1);
+    expect(ranked.find((s) => s.id === 's1')?.position).toBe(2);
+    expect(ranked.find((s) => s.id === 's3')?.position).toBe(2);
+    expect(ranked.find((s) => s.id === 's4')?.position).toBe(3);
+  });
+
+  it('computes standard competition positions correctly (ties share rank, subsequent skips)', () => {
+    const students = [
+      { id: 's1', score: 85 },
+      { id: 's2', score: 92 },
+      { id: 's3', score: 85 },
+      { id: 's4', score: 70 },
+    ];
+    const ranked = computePositions(students, 'standard');
+    expect(ranked.find((s) => s.id === 's2')?.position).toBe(1);
+    expect(ranked.find((s) => s.id === 's1')?.position).toBe(2);
+    expect(ranked.find((s) => s.id === 's3')?.position).toBe(2);
+    expect(ranked.find((s) => s.id === 's4')?.position).toBe(4);
+  });
+
+  it('returns null positions when policy is none', () => {
+    const students = [{ id: 's1', score: 85 }];
+    const ranked = computePositions(students, 'none');
+    expect(ranked[0].position).toBeNull();
+  });
+});
+

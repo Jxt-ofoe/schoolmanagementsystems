@@ -25,6 +25,11 @@ const icons = {
   check: i('M9 11l3 3 8-8M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11'),
   chart: i('M3 3v18h18M7 15l4-4 3 3 5-6'),
   report: i('M6 2h9l5 5v15H6zM9 13h6M9 17h6M9 9h2'),
+  exam: i('M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v0a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2v0m1 9 2 2 4-4'),
+  table: i('M3 3h18v18H3zM3 9h18M3 15h18M9 3v18M15 3v18'),
+  promote: i('M13 7l5 5m0 0l-5 5m5-5H6'),
+  fee: i('M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6'),
+  renew: i('M21 12a9 9 0 1 1-2.6-6.4L21 8m0-6v6h-6'),
 };
 
 function navFor(isSuperAdmin: boolean, role: string | undefined): { section: string; items: NavItem[] }[] {
@@ -34,21 +39,30 @@ function navFor(isSuperAdmin: boolean, role: string | undefined): { section: str
       { to: '/admin', label: 'Overview', icon: icons.home, end: true },
       { to: '/admin/schools', label: 'Schools', icon: icons.school },
       { to: '/admin/billing', label: 'Billing', icon: icons.money },
+      { to: '/admin/renewals', label: 'Renewals & Invoices', icon: icons.renew },
       { to: '/admin/settings', label: 'Settings', icon: icons.gear },
       { to: '/admin/audit', label: 'Audit log', icon: icons.log },
     ] });
   }
   if (role === 'headmaster') {
-    sections.push({ section: 'School', items: [
+    sections.push({ section: 'Academic', items: [
       { to: '/school', label: 'Dashboard', icon: icons.home, end: true },
       { to: '/school/students', label: 'Students', icon: icons.users },
+      { to: '/school/examinations', label: 'Examinations', icon: icons.exam },
+      { to: '/school/consolidated', label: 'Consolidated Results', icon: icons.table },
+      { to: '/school/reports/terminal', label: 'Terminal Reports', icon: icons.report },
+      { to: '/school/promotions', label: 'Student Promotion', icon: icons.promote },
+      { to: '/school/fees', label: 'Fees & Payments', icon: icons.fee },
       { to: '/school/attendance', label: 'Attendance', icon: icons.check },
-      { to: '/school/grades', label: 'Grades', icon: icons.chart },
+      { to: '/school/grades', label: 'Grades Overview', icon: icons.chart },
+      { to: '/school/reports', label: 'Analytics Reports', icon: icons.report },
+    ] });
+    sections.push({ section: 'Setup', items: [
       { to: '/school/teachers', label: 'Teachers', icon: icons.teacher },
       { to: '/school/classes', label: 'Classes', icon: icons.grid },
       { to: '/school/subjects', label: 'Subjects', icon: icons.book },
       { to: '/school/academic', label: 'Academic calendar', icon: icons.calendar },
-      { to: '/school/reports', label: 'Reports', icon: icons.report },
+      { to: '/school/billing', label: 'Subscription Billing', icon: icons.money },
       { to: '/school/settings', label: 'School settings', icon: icons.gear },
     ] });
   }
@@ -56,12 +70,15 @@ function navFor(isSuperAdmin: boolean, role: string | undefined): { section: str
     sections.push({ section: 'Teaching', items: [
       { to: '/teach', label: 'My dashboard', icon: icons.home, end: true },
       { to: '/teach/students', label: 'My students', icon: icons.users },
+      { to: '/teach/consolidated', label: 'Class Results', icon: icons.table },
+      { to: '/teach/reports', label: 'Terminal Reports', icon: icons.report },
+      { to: '/teach/grades', label: 'Enter Grades', icon: icons.chart },
       { to: '/teach/attendance', label: 'Attendance', icon: icons.check },
-      { to: '/teach/grades', label: 'Grades', icon: icons.chart },
     ] });
   }
   return sections;
 }
+
 
 export function Layout() {
   const { ctx, active, setActiveSchool, signOut } = useAuth();

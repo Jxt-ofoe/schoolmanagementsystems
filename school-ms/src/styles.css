@@ -285,6 +285,10 @@ pre.meta { background: #f9fafb; border: 1px solid var(--line); border-radius: 8p
 
 /* ---------- print ---------- */
 .print-only { display: none; }
+@page {
+  size: A4 portrait;
+  margin: 10mm;
+}
 @media print {
   .sidebar, .topbar, .page-actions, .no-print, .filters, .tabs, .toasts, .sticky-bar, .pagination button { display: none !important; }
   .main { margin: 0 !important; padding: 0 !important; max-width: none !important; }
@@ -293,6 +297,19 @@ pre.meta { background: #f9fafb; border: 1px solid var(--line); border-radius: 8p
   body { background: #fff; }
   th { background: #eee !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   a { color: inherit; text-decoration: none; }
+  .terminal-report-page {
+    box-shadow: none !important;
+    border: 1px solid #101828 !important;
+    page-break-after: always !important;
+    break-after: page !important;
+    margin: 0 0 20mm 0 !important;
+  }
+  .printable-receipt {
+    box-shadow: none !important;
+    border: 1px dashed #101828 !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
 }
 
 pre.meta { white-space: pre-wrap; word-break: break-word; font-size: .78rem; background: var(--bg); padding: 10px; border-radius: 6px; margin: 0; }
