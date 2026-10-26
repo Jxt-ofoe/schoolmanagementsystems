@@ -104,9 +104,18 @@ export function useAuth(): AuthState {
   return v;
 }
 
-/** Active school for headmaster/teacher pages. Guarded routes guarantee it exists. */
 export function useSchool() {
-  const { active } = useAuth();
-  if (!active) throw new Error('No active school membership');
-  return { schoolId: active.school_id, role: active.role, schoolName: active.school_name, membership: active };
+  const { active, ctx } = useAuth();
+  if (active) {
+    return { schoolId: active.school_id, role: active.role, schoolName: active.school_name, membership: active };
+  }
+  const firstMembership = ctx?.memberships?.[0];
+  if (firstMembership) {
+    return { schoolId: firstMembership.school_id, role: firstMembership.role, schoolName: firstMembership.school_name, membership: firstMembership };
+  }
+  if (ctx?.is_super_admin) {
+    const activeStoredId = typeof window !== 'undefined' ? localStorage.getItem('sms.activeSchool') : null;
+    return { schoolId: activeStoredId || '', role: 'super_admin' as const, schoolName: 'Platform Administrator', membership: null };
+  }
+  throw new Error('No active school membership');
 }

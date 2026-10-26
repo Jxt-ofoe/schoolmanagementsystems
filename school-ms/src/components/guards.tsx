@@ -25,11 +25,11 @@ export function RequireAuth({ children }: { children: ReactNode }) {
 
 type Need = 'super_admin' | 'headmaster' | 'teacher';
 
-/** Role gate for route groups. The database (RLS) enforces the same rules. */
 export function RequireRole({ need, children }: { need: Need; children: ReactNode }) {
   const { ctx, active } = useAuth();
   const ok =
     need === 'super_admin' ? !!ctx?.is_super_admin
+      : ctx?.is_super_admin ? true
       : need === 'headmaster' ? active?.role === 'headmaster'
         : active?.role === 'teacher' || active?.role === 'headmaster';
   if (!ok) return <Forbidden />;

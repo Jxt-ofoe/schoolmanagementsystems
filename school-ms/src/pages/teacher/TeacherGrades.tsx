@@ -36,17 +36,17 @@ export default function TeacherGradesPage() {
   if (q.isLoading) return <Spinner />;
   if (q.error) return <ErrorBox error={q.error} onRetry={() => q.refetch()} />;
 
-  const data = q.data!;
-  const tasks = data.grade_tasks ?? [];
+  const data = q.data;
+  const tasks = data?.grade_tasks ?? [];
 
   return (
     <>
       <PageHeader
         title="Grade Entry"
-        subtitle={`Enter assessment marks for your assigned subjects · ${data.current_semester ?? 'Current semester'}`}
+        subtitle={`Enter assessment marks for your assigned subjects · ${data?.current_semester ?? 'Current semester'}`}
       />
 
-      {!data.current_semester_id ? (
+      {!data?.current_semester_id ? (
         <EmptyState title="No active semester">
           There is no current semester active. Your headmaster sets up the active semester.
         </EmptyState>

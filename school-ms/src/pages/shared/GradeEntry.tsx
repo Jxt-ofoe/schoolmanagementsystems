@@ -19,7 +19,7 @@ export default function GradeEntryPage() {
   const { classId, subjectId } = useParams();
   const [params, setParams] = useSearchParams();
   const { active } = useAuth();
-  const schoolId = active!.school_id;
+  const schoolId = active?.school_id ?? '';
   const qc = useQueryClient();
   const toast = useToast();
   const semesters = useSemesters(schoolId);
@@ -119,9 +119,18 @@ export default function GradeEntryPage() {
 
   if (meta.isLoading || semesters.isLoading) return <Spinner />;
   if (meta.error) return <ErrorBox error={meta.error} />;
-  const { cls, subj } = meta.data!;
+  if (!meta.data?.cls || !meta.data?.subj) {
+    return (
+      <div className="center-page">
+        <EmptyState title="Subject or class not found">
+          Please verify that this class and subject exist in your school.
+        </EmptyState>
+      </div>
+    );
+  }
+  const { cls, subj } = meta.data;
   const totalWeight = 100 - remainingWeight(list);
-  const backTo = active?.role === 'headmaster' ? '/school/grades' : '/teach';
+  const backTo = active?.role === 'headmaster' ? '/school/grades' : '/teach/grades';
   const semester = semesters.data?.find((s) => s.id === semesterId);
 
   const exportCsv = () => downloadCsv(`${classLabel(cls)}-${subj.name}-${semester?.name ?? ''}.csv`,
@@ -137,14 +146,19 @@ export default function GradeEntryPage() {
     queryKey: ['subject_submission', classId, subjectId, semesterId],
     enabled: !!classId && !!subjectId && !!semesterId,
     queryFn: async () => {
-      const { data } = await supabase
-        .from('subject_result_submissions')
-        .select('*')
-        .eq('class_id', classId!)
-        .eq('subject_id', subjectId!)
-        .eq('semester_id', semesterId)
-        .maybeSingle();
-      return data as { id: string; status: string; feedback: string | null; submitted_at: string | null } | null;
+      try {
+        const { data, error } = await supabase
+          .from('subject_result_submissions')
+          .select('*')
+          .eq('class_id', classId!)
+          .eq('subject_id', subjectId!)
+          .eq('semester_id', semesterId)
+          .maybeSingle();
+        if (error) return null;
+        return data as { id: string; status: string; feedback: string | null; submitted_at: string | null } | null;
+      } catch {
+        return null;
+      }
     },
   });
 
