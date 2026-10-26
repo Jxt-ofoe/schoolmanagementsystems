@@ -56,8 +56,34 @@ export default function AdminSchoolDetail() {
     onError: (e) => { toast(friendlyError(e), 'error'); setMemberToggle(null); },
   });
   const generate = useMutation({
-    mutationFn: async (semesterId: string) => unwrap(supabase.rpc('upsert_semester_billing', { p_semester_id: semesterId })),
-    onSuccess: () => { toast('Billing generated / refreshed'); qc.invalidateQueries({ queryKey: ['admin_bills'] }); },
+    mutationFn: async (semesterId: string) => {
+      const { data: students } = await supabase
+        .from('students')
+        .select('id, school_id, current_class_id')
+        .eq('school_id', schoolId!)
+        .eq('enrollment_status', 'active')
+        .not('current_class_id', 'is', null);
+
+      if (students && students.length > 0) {
+        const enrollments = students.map((st) => ({
+          school_id: st.school_id,
+          student_id: st.id,
+          semester_id: semesterId,
+          class_id: st.current_class_id,
+          status: 'registered',
+        }));
+        await supabase
+          .from('student_enrollments')
+          .upsert(enrollments, { onConflict: 'student_id, semester_id' });
+      }
+
+      return unwrap(supabase.rpc('upsert_semester_billing', { p_semester_id: semesterId }));
+    },
+    onSuccess: () => {
+      toast('Billing generated / refreshed');
+      qc.invalidateQueries({ queryKey: ['admin_bills'] });
+      qc.invalidateQueries({ queryKey: ['platform_schools'] });
+    },
     onError: (e) => toast(friendlyError(e), 'error'),
   });
 
