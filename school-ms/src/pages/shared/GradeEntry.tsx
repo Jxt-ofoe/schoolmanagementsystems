@@ -107,40 +107,6 @@ export default function GradeEntryPage() {
     onError: (e) => { toast(friendlyError(e), 'error'); setDeleting(null); },
   });
 
-  const scoreMap = (studentId: string) => {
-    const m: Record<string, number | null> = {};
-    for (const a of list) {
-      const c = cells[`${a.id}:${studentId}`];
-      const v = c ? validateScore(c.raw, Number(a.max_score)).value : null;
-      m[a.id] = v;
-    }
-    return m;
-  };
-
-  if (meta.isLoading || semesters.isLoading) return <Spinner />;
-  if (meta.error) return <ErrorBox error={meta.error} />;
-  if (!meta.data?.cls || !meta.data?.subj) {
-    return (
-      <div className="center-page">
-        <EmptyState title="Subject or class not found">
-          Please verify that this class and subject exist in your school.
-        </EmptyState>
-      </div>
-    );
-  }
-  const { cls, subj } = meta.data;
-  const totalWeight = 100 - remainingWeight(list);
-  const backTo = active?.role === 'headmaster' ? '/school/grades' : '/teach/grades';
-  const semester = semesters.data?.find((s) => s.id === semesterId);
-
-  const exportCsv = () => downloadCsv(`${classLabel(cls)}-${subj.name}-${semester?.name ?? ''}.csv`,
-    (students.data ?? []).map((s) => {
-      const r = computeResult(list, scoreMap(s.id), bands.data?.bands ?? []);
-      const row: Record<string, unknown> = { admission_number: s.admission_number, student: `${s.last_name}, ${s.first_name}` };
-      list.forEach((a) => { row[`${a.name} (/${Number(a.max_score)})`] = scoreMap(s.id)[a.id] ?? ''; });
-      return { ...row, total: r.total, percentage: r.percentage ?? '', grade: r.grade ?? '' };
-    }));
-
   // Fetch submission status for this class and subject
   const submissionQuery = useQuery({
     queryKey: ['subject_submission', classId, subjectId, semesterId],
@@ -191,6 +157,40 @@ export default function GradeEntryPage() {
     },
     onError: (err) => toast(friendlyError(err), 'error'),
   });
+
+  const scoreMap = (studentId: string) => {
+    const m: Record<string, number | null> = {};
+    for (const a of list) {
+      const c = cells[`${a.id}:${studentId}`];
+      const v = c ? validateScore(c.raw, Number(a.max_score)).value : null;
+      m[a.id] = v;
+    }
+    return m;
+  };
+
+  if (meta.isLoading || semesters.isLoading) return <Spinner />;
+  if (meta.error) return <ErrorBox error={meta.error} />;
+  if (!meta.data?.cls || !meta.data?.subj) {
+    return (
+      <div className="center-page">
+        <EmptyState title="Subject or class not found">
+          Please verify that this class and subject exist in your school.
+        </EmptyState>
+      </div>
+    );
+  }
+  const { cls, subj } = meta.data;
+  const totalWeight = 100 - remainingWeight(list);
+  const backTo = active?.role === 'headmaster' ? '/school/grades' : '/teach/grades';
+  const semester = semesters.data?.find((s) => s.id === semesterId);
+
+  const exportCsv = () => downloadCsv(`${classLabel(cls)}-${subj.name}-${semester?.name ?? ''}.csv`,
+    (students.data ?? []).map((s) => {
+      const r = computeResult(list, scoreMap(s.id), bands.data?.bands ?? []);
+      const row: Record<string, unknown> = { admission_number: s.admission_number, student: `${s.last_name}, ${s.first_name}` };
+      list.forEach((a) => { row[`${a.name} (/${Number(a.max_score)})`] = scoreMap(s.id)[a.id] ?? ''; });
+      return { ...row, total: r.total, percentage: r.percentage ?? '', grade: r.grade ?? '' };
+    }));
 
   const submissionStatus = submissionQuery.data?.status ?? 'draft';
   const isApproved = submissionStatus === 'approved';
