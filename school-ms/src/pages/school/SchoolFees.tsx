@@ -237,9 +237,8 @@ export default function SchoolFeesPage() {
         semester_id: activeSemester!.id,
         fee_structure_id: st.id,
         category_id: st.category_id,
-        title: st.name,
+        description: st.name,
         amount: Number(st.amount),
-        due_date: st.due_date || null,
       }));
 
       for (let i = 0; i < chargesPayload.length; i += 250) {
@@ -253,11 +252,28 @@ export default function SchoolFeesPage() {
       toast(`Successfully billed ${count} student${count === 1 ? '' : 's'}!`);
       setApplyingStructureId(null);
       qc.invalidateQueries({ queryKey: ['student_fee_charges'] });
+      qc.invalidateQueries({ queryKey: ['school_dashboard_fees'] });
     },
     onError: (err) => {
       setApplyingStructureId(null);
       toast(friendlyError(err), 'error');
     },
+  });
+
+  const deleteStructureMutation = useMutation({
+    mutationFn: async (structureId: string) => {
+      // First remove any charges associated with this structure so student balances update cleanly
+      await supabase.from('student_fee_charges').delete().eq('fee_structure_id', structureId);
+      const { error } = await supabase.from('fee_structures').delete().eq('id', structureId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast('Fee structure removed');
+      qc.invalidateQueries({ queryKey: ['fee_structures'] });
+      qc.invalidateQueries({ queryKey: ['student_fee_charges'] });
+      qc.invalidateQueries({ queryKey: ['school_dashboard_fees'] });
+    },
+    onError: (err) => toast(friendlyError(err), 'error'),
   });
 
   return (
@@ -367,6 +383,18 @@ export default function SchoolFeesPage() {
 
       {activeTab === 'overview' && (
         <Card padded={false}>
+          {structuresQuery.data && structuresQuery.data.length > 0 && charges.length === 0 && (
+            <div style={{ padding: '16px 16px 0' }}>
+              <Alert tone="warn">
+                <span>
+                  You have {structuresQuery.data.length} fee structure{structuresQuery.data.length > 1 ? 's' : ''} configured, but students have not been billed yet. Student balances and reports will show GH₵ 0.00 until fees are charged to students.
+                </span>
+                <Button size="sm" onClick={() => setActiveTab('structures')}>
+                  View & Bill Students →
+                </Button>
+              </Alert>
+            </div>
+          )}
           <div className="filters" style={{ padding: '12px 16px 0' }}>
             <SearchBox
               value={searchStudent}
@@ -457,30 +485,55 @@ export default function SchoolFeesPage() {
                     <th>Category</th>
                     <th>Applies To</th>
                     <th className="right">Amount</th>
+                    <th>Status</th>
                     <th>Due Date</th>
                     <th className="right">Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {structuresQuery.data.map((st) => (
-                    <tr key={st.id}>
-                      <td><strong>{st.name}</strong></td>
-                      <td><Badge tone="neutral">{st.fee_categories?.name ?? 'General'}</Badge></td>
-                      <td>{st.classes ? `${st.classes.name} ${st.classes.section ?? ''}` : 'All Classes'}</td>
-                      <td className="right"><strong>{formatMoney(st.amount)}</strong></td>
-                      <td className="small muted">{st.due_date ? formatDate(st.due_date) : 'Semester Start'}</td>
-                      <td className="right">
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onClick={() => applyFeeMutation.mutate(st)}
-                          loading={applyFeeMutation.isPending && applyingStructureId === st.id}
-                        >
-                          Charge to Students
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
+                  {structuresQuery.data.map((st) => {
+                    const billedCount = charges.filter((c) => c.fee_structure_id === st.id).length;
+                    return (
+                      <tr key={st.id}>
+                        <td><strong>{st.name}</strong></td>
+                        <td><Badge tone="neutral">{st.fee_categories?.name ?? 'General'}</Badge></td>
+                        <td>{st.classes ? `${st.classes.name} ${st.classes.section ?? ''}` : 'All Classes'}</td>
+                        <td className="right"><strong>{formatMoney(st.amount)}</strong></td>
+                        <td>
+                          {billedCount > 0 ? (
+                            <Badge tone="good">✓ Billed to {billedCount} students</Badge>
+                          ) : (
+                            <Badge tone="warn">⚠️ Not billed (0 students)</Badge>
+                          )}
+                        </td>
+                        <td className="small muted">{st.due_date ? formatDate(st.due_date) : 'Semester Start'}</td>
+                        <td className="right">
+                          <div className="table-actions" style={{ justifyContent: 'flex-end', gap: 6 }}>
+                            <Button
+                              size="sm"
+                              variant={billedCount > 0 ? 'secondary' : 'primary'}
+                              onClick={() => applyFeeMutation.mutate(st)}
+                              loading={applyFeeMutation.isPending && applyingStructureId === st.id}
+                            >
+                              {billedCount > 0 ? 'Charge More' : '⚡ Charge to Students'}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => {
+                                if (window.confirm(`Are you sure you want to delete fee structure "${st.name}"? This will also remove any uncollected charges.`)) {
+                                  deleteStructureMutation.mutate(st.id);
+                                }
+                              }}
+                              loading={deleteStructureMutation.isPending}
+                            >
+                              Delete
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -819,6 +872,7 @@ function StructureModal({
   const [categoryId, setCategoryId] = useState(categories[0]?.id || '');
   const [classId, setClassId] = useState('');
   const [amount, setAmount] = useState('');
+  const [autoBill, setAutoBill] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const m = useMutation({
@@ -826,28 +880,99 @@ function StructureModal({
       setError(null);
       const val = parseFloat(amount);
       if (!name.trim() || isNaN(val) || val <= 0) {
-        throw new Error('Valid name and amount are required');
+        throw new Error('Valid title and positive amount are required');
+      }
+
+      // Ensure valid category_id fallback
+      let effectiveCatId = categoryId;
+      if (!effectiveCatId) {
+        const { data: existingCat } = await supabase
+          .from('fee_categories')
+          .select('id')
+          .eq('school_id', schoolId)
+          .limit(1)
+          .maybeSingle();
+        if (existingCat) {
+          effectiveCatId = existingCat.id;
+        } else {
+          const { data: newCat, error: catErr } = await supabase
+            .from('fee_categories')
+            .insert([{ school_id: schoolId, name: 'School Fees', description: 'General tuition and school fees' }])
+            .select('id')
+            .single();
+          if (catErr) throw catErr;
+          effectiveCatId = newCat.id;
+        }
       }
 
       // Fetch semester academic year
-      const { data: sem } = await supabase.from('semesters').select('academic_year_id').eq('id', semesterId).single();
+      const { data: sem, error: semErr } = await supabase
+        .from('semesters')
+        .select('academic_year_id')
+        .eq('id', semesterId)
+        .single();
+      if (semErr) throw semErr;
 
-      const { error } = await supabase.from('fee_structures').insert([
-        {
-          school_id: schoolId,
-          academic_year_id: sem!.academic_year_id,
-          semester_id: semesterId,
-          class_id: classId || null,
-          category_id: categoryId,
-          name: name.trim(),
-          amount: val,
-        },
-      ]);
-      if (error) throw error;
+      const { data: stData, error: stErr } = await supabase
+        .from('fee_structures')
+        .insert([
+          {
+            school_id: schoolId,
+            academic_year_id: sem!.academic_year_id,
+            semester_id: semesterId,
+            class_id: classId || null,
+            category_id: effectiveCatId,
+            name: name.trim(),
+            amount: val,
+          },
+        ])
+        .select()
+        .single();
+      if (stErr) throw stErr;
+
+      let billedCount = 0;
+      if (autoBill) {
+        let q = supabase
+          .from('students')
+          .select('id')
+          .eq('school_id', schoolId)
+          .eq('enrollment_status', 'active');
+        if (classId) {
+          q = q.eq('current_class_id', classId);
+        }
+        const stuList = await unwrap<{ id: string }[]>(q);
+        if (stuList.length > 0) {
+          const chargesPayload = stuList.map((stu) => ({
+            school_id: schoolId,
+            student_id: stu.id,
+            semester_id: semesterId,
+            fee_structure_id: stData.id,
+            category_id: effectiveCatId,
+            description: name.trim(),
+            amount: val,
+          }));
+
+          for (let i = 0; i < chargesPayload.length; i += 250) {
+            const chunk = chargesPayload.slice(i, i + 250);
+            const { error: chErr } = await supabase.from('student_fee_charges').insert(chunk);
+            if (chErr) throw chErr;
+          }
+          billedCount = stuList.length;
+        }
+      }
+
+      return { structure: stData, billedCount };
     },
-    onSuccess: () => {
-      toast('Fee structure created');
+    onSuccess: (res) => {
+      if (res.billedCount > 0) {
+        toast(`Fee configured and billed to ${res.billedCount} student${res.billedCount === 1 ? '' : 's'}!`);
+      } else {
+        toast('Fee structure created');
+      }
       qc.invalidateQueries({ queryKey: ['fee_structures'] });
+      qc.invalidateQueries({ queryKey: ['fee_categories'] });
+      qc.invalidateQueries({ queryKey: ['student_fee_charges'] });
+      qc.invalidateQueries({ queryKey: ['school_dashboard_fees'] });
       onClose();
     },
     onError: (err) => setError(friendlyError(err)),
@@ -861,7 +986,7 @@ function StructureModal({
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => m.mutate()} loading={m.isPending}>Save Fee</Button>
+          <Button onClick={() => m.mutate()} loading={m.isPending}>Save & Apply Fee</Button>
         </>
       }
     >
@@ -870,12 +995,26 @@ function StructureModal({
         <Input label="Fee Title" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Term 1 Tuition Fee" required />
         <Input label="Amount (GH₵)" type="number" step="0.01" min={0.01} value={amount} onChange={(e) => setAmount(e.target.value)} required />
         <Select label="Category" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+          {categories.length === 0 && <option value="">General (School Fees)</option>}
           {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </Select>
         <Select label="Target Class" value={classId} onChange={(e) => setClassId(e.target.value)}>
           <option value="">All Classes (Whole School)</option>
           {classes.map((c) => <option key={c.id} value={c.id}>{c.name} {c.section ?? ''}</option>)}
         </Select>
+        <div style={{ gridColumn: 'span 2', marginTop: 4 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '0.9rem' }}>
+            <input
+              type="checkbox"
+              checked={autoBill}
+              onChange={(e) => setAutoBill(e.target.checked)}
+            />
+            <span><strong>Automatically apply & bill this fee to all eligible students now</strong></span>
+          </label>
+          <p className="muted small" style={{ margin: '4px 0 0 24px' }}>
+            Applies this charge to student accounts immediately so balances, statements, and dashboard metrics update.
+          </p>
+        </div>
       </div>
     </Modal>
   );
