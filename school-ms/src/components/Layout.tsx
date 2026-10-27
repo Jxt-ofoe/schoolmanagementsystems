@@ -38,6 +38,7 @@ function navFor(isSuperAdmin: boolean, role: string | undefined): { section: str
     sections.push({ section: 'Platform', items: [
       { to: '/admin', label: 'Overview', icon: icons.home, end: true },
       { to: '/admin/schools', label: 'Schools', icon: icons.school },
+      { to: '/admin/fees', label: 'School Fees & Payments', icon: icons.fee },
       { to: '/admin/billing', label: 'Billing', icon: icons.money },
       { to: '/admin/renewals', label: 'Renewals & Invoices', icon: icons.renew },
       { to: '/admin/settings', label: 'Settings', icon: icons.gear },

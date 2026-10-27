@@ -99,6 +99,7 @@ export default function AdminSchoolDetail() {
       <PageHeader back={<Link to="/admin/schools">← Schools</Link>} title={s.name}
         subtitle={<><span className="mono">{s.code}</span> · <Badge value={s.status} /> · created {formatDate(s.created_at)}</>}
         actions={<>
+          <Link className="btn btn-secondary" to={`/admin/fees?schoolId=${s.id}`}>Student Fees & Payments</Link>
           {s.status !== 'active' && <Button onClick={() => setStatusTo('active')}>Activate</Button>}
           {s.status === 'active' && <Button variant="secondary" onClick={() => setStatusTo('suspended')}>Suspend</Button>}
           {s.status !== 'inactive' && <Button variant="ghost" onClick={() => setStatusTo('inactive')}>Deactivate</Button>}

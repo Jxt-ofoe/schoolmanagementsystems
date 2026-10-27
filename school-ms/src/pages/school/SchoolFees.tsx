@@ -1,7 +1,8 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
-import { useAuth, useSchool } from '../../lib/auth';
+import { useAuth } from '../../lib/auth';
 import { semesterLabel, unwrap, useClasses, useSemesters } from '../../lib/queries';
 import { classLabel, formatDate, formatMoney, humanize, todayISO } from '../../lib/format';
 import { computeFeeSummary, generateReceiptNumber } from '../../lib/fees';
@@ -35,16 +36,39 @@ import {
 } from '../../components/ui';
 
 export default function SchoolFeesPage() {
-  const { schoolId, schoolName } = useSchool();
+  const [params, setParams] = useSearchParams();
+  const { active, ctx } = useAuth();
+  const isSuperAdmin = !!ctx?.is_super_admin;
+
+  const allSchools = useQuery({
+    queryKey: ['admin_all_schools_fee_dropdown'],
+    enabled: isSuperAdmin,
+    queryFn: () =>
+      unwrap<{ id: string; name: string; code: string }[]>(
+        supabase.from('schools').select('id, name, code').eq('status', 'active').order('name')
+      ),
+  });
+
+  const urlSchoolId = params.get('schoolId');
+  const effectiveSchoolId =
+    urlSchoolId ||
+    active?.school_id ||
+    (isSuperAdmin ? (allSchools.data?.[0]?.id || '') : '');
+
+  const currentSchool = allSchools.data?.find((s) => s.id === effectiveSchoolId);
+  const effectiveSchoolName = currentSchool?.name || active?.school_name || 'School Management';
+  const effectiveSchoolCode = currentSchool?.code || 'FEE';
+
   const qc = useQueryClient();
   const toast = useToast();
-  const semesters = useSemesters(schoolId);
-  const classes = useClasses(schoolId);
+  const semesters = useSemesters(effectiveSchoolId);
+  const classes = useClasses(effectiveSchoolId);
 
   const [activeTab, setActiveTab] = useState<'overview' | 'structures' | 'assign' | 'payments' | 'history'>('overview');
   const [semesterId, setSemesterId] = useState('');
   const [classFilter, setClassFilter] = useState('');
   const [searchStudent, setSearchStudent] = useState('');
+  const [applyingStructureId, setApplyingStructureId] = useState<string | null>(null);
 
   // Modals
   const [categoryModalOpen, setCategoryModalOpen] = useState(false);
@@ -61,23 +85,24 @@ export default function SchoolFeesPage() {
 
   // Fee categories
   const categoriesQuery = useQuery({
-    queryKey: ['fee_categories', schoolId],
+    queryKey: ['fee_categories', effectiveSchoolId],
+    enabled: !!effectiveSchoolId,
     queryFn: () =>
       unwrap<FeeCategory[]>(
-        supabase.from('fee_categories').select('*').eq('school_id', schoolId).order('name')
+        supabase.from('fee_categories').select('*').eq('school_id', effectiveSchoolId).order('name')
       ),
   });
 
   // Fee structures (configured fees for current semester)
   const structuresQuery = useQuery({
-    queryKey: ['fee_structures', schoolId, activeSemester?.id],
-    enabled: !!activeSemester?.id,
+    queryKey: ['fee_structures', effectiveSchoolId, activeSemester?.id],
+    enabled: !!effectiveSchoolId && !!activeSemester?.id,
     queryFn: () =>
       unwrap<(FeeStructure & { fee_categories: { name: string } | null; classes: { name: string; section: string | null } | null })[]>(
         supabase
           .from('fee_structures')
           .select('*, fee_categories(name), classes(name, section)')
-          .eq('school_id', schoolId)
+          .eq('school_id', effectiveSchoolId)
           .eq('semester_id', activeSemester!.id)
           .order('name')
       ),
@@ -85,12 +110,13 @@ export default function SchoolFeesPage() {
 
   // All active students
   const studentsQuery = useQuery({
-    queryKey: ['fee_students', schoolId, classFilter],
+    queryKey: ['fee_students', effectiveSchoolId, classFilter],
+    enabled: !!effectiveSchoolId,
     queryFn: async () => {
       let q = supabase
         .from('students')
         .select('id, admission_number, first_name, last_name, current_class_id, enrollment_status')
-        .eq('school_id', schoolId)
+        .eq('school_id', effectiveSchoolId)
         .eq('enrollment_status', 'active')
         .order('last_name')
         .order('first_name');
@@ -101,28 +127,28 @@ export default function SchoolFeesPage() {
 
   // Charges for this semester
   const chargesQuery = useQuery({
-    queryKey: ['student_fee_charges', schoolId, activeSemester?.id],
-    enabled: !!activeSemester?.id,
+    queryKey: ['student_fee_charges', effectiveSchoolId, activeSemester?.id],
+    enabled: !!effectiveSchoolId && !!activeSemester?.id,
     queryFn: () =>
       unwrap<StudentFeeCharge[]>(
         supabase
           .from('student_fee_charges')
           .select('*, fee_categories(name)')
-          .eq('school_id', schoolId)
+          .eq('school_id', effectiveSchoolId)
           .eq('semester_id', activeSemester!.id)
       ),
   });
 
   // Payments for this semester
   const paymentsQuery = useQuery({
-    queryKey: ['student_fee_payments', schoolId, activeSemester?.id],
-    enabled: !!activeSemester?.id,
+    queryKey: ['student_fee_payments', effectiveSchoolId, activeSemester?.id],
+    enabled: !!effectiveSchoolId && !!activeSemester?.id,
     queryFn: () =>
       unwrap<(StudentFeePayment & { students: { first_name: string; last_name: string; admission_number: string } | null })[]>(
         supabase
           .from('student_fee_payments')
           .select('*, students(first_name, last_name, admission_number)')
-          .eq('school_id', schoolId)
+          .eq('school_id', effectiveSchoolId)
           .eq('semester_id', activeSemester!.id)
           .order('paid_on', { ascending: false })
           .order('created_at', { ascending: false })
@@ -176,10 +202,68 @@ export default function SchoolFeesPage() {
     },
   });
 
+  const applyFeeMutation = useMutation({
+    mutationFn: async (st: FeeStructure) => {
+      setApplyingStructureId(st.id);
+      // Query all active students in the target class or entire school
+      let q = supabase
+        .from('students')
+        .select('id')
+        .eq('school_id', effectiveSchoolId)
+        .eq('enrollment_status', 'active');
+      if (st.class_id) {
+        q = q.eq('current_class_id', st.class_id);
+      }
+      const stuList = await unwrap<{ id: string }[]>(q);
+      if (!stuList.length) throw new Error('No active students found to apply this fee to.');
+
+      // Check which students already have this fee structure charged this semester
+      const { data: existingCharges } = await supabase
+        .from('student_fee_charges')
+        .select('student_id')
+        .eq('fee_structure_id', st.id)
+        .eq('semester_id', activeSemester!.id);
+
+      const existingSet = new Set((existingCharges ?? []).map((c) => c.student_id));
+      const neededStudents = stuList.filter((s) => !existingSet.has(s.id));
+
+      if (!neededStudents.length) {
+        throw new Error('All eligible students have already been charged this fee.');
+      }
+
+      const chargesPayload = neededStudents.map((stu) => ({
+        school_id: effectiveSchoolId,
+        student_id: stu.id,
+        semester_id: activeSemester!.id,
+        fee_structure_id: st.id,
+        category_id: st.category_id,
+        title: st.name,
+        amount: Number(st.amount),
+        due_date: st.due_date || null,
+      }));
+
+      for (let i = 0; i < chargesPayload.length; i += 250) {
+        const chunk = chargesPayload.slice(i, i + 250);
+        const { error } = await supabase.from('student_fee_charges').insert(chunk);
+        if (error) throw error;
+      }
+      return neededStudents.length;
+    },
+    onSuccess: (count) => {
+      toast(`Successfully billed ${count} student${count === 1 ? '' : 's'}!`);
+      setApplyingStructureId(null);
+      qc.invalidateQueries({ queryKey: ['student_fee_charges'] });
+    },
+    onError: (err) => {
+      setApplyingStructureId(null);
+      toast(friendlyError(err), 'error');
+    },
+  });
+
   return (
     <>
       <PageHeader
-        title="School Fees & Payments"
+        title={`School Fees & Payments · ${effectiveSchoolName}`}
         subtitle={`Track fee configurations, student account balances, and recorded receipts · ${semesterLabel(activeSemester)}`}
         actions={
           <div className="page-actions">
@@ -214,6 +298,26 @@ export default function SchoolFeesPage() {
       />
 
       <div className="filters">
+        {isSuperAdmin && (
+          <Select
+            label="School"
+            value={effectiveSchoolId}
+            onChange={(e) => {
+              const newId = e.target.value;
+              setParams((prev) => {
+                const next = new URLSearchParams(prev);
+                next.set('schoolId', newId);
+                return next;
+              });
+            }}
+          >
+            {allSchools.data?.map((sch) => (
+              <option key={sch.id} value={sch.id}>
+                {sch.name} ({sch.code})
+              </option>
+            ))}
+          </Select>
+        )}
         <Select
           label="Semester"
           value={activeSemester?.id ?? ''}
@@ -354,6 +458,7 @@ export default function SchoolFeesPage() {
                     <th>Applies To</th>
                     <th className="right">Amount</th>
                     <th>Due Date</th>
+                    <th className="right">Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -364,6 +469,16 @@ export default function SchoolFeesPage() {
                       <td>{st.classes ? `${st.classes.name} ${st.classes.section ?? ''}` : 'All Classes'}</td>
                       <td className="right"><strong>{formatMoney(st.amount)}</strong></td>
                       <td className="small muted">{st.due_date ? formatDate(st.due_date) : 'Semester Start'}</td>
+                      <td className="right">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => applyFeeMutation.mutate(st)}
+                          loading={applyFeeMutation.isPending && applyingStructureId === st.id}
+                        >
+                          Charge to Students
+                        </Button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -455,7 +570,8 @@ export default function SchoolFeesPage() {
         <RecordPaymentModal
           student={paymentModalStudent}
           semesterId={activeSemester.id}
-          schoolCode={activeSemester.name}
+          schoolCode={effectiveSchoolCode}
+          schoolId={effectiveSchoolId}
           onClose={() => setPaymentModalStudent(null)}
           onSuccess={(payment) => {
             setPaymentModalStudent(null);
@@ -469,20 +585,20 @@ export default function SchoolFeesPage() {
         <StudentStatementModal
           student={statementStudent}
           semesterId={activeSemester.id}
-          schoolName={schoolName ?? 'School'}
+          schoolName={effectiveSchoolName}
           onClose={() => setStatementStudent(null)}
         />
       )}
 
       {/* Create Category Modal */}
       {categoryModalOpen && (
-        <CategoryModal schoolId={schoolId} onClose={() => setCategoryModalOpen(false)} />
+        <CategoryModal schoolId={effectiveSchoolId} onClose={() => setCategoryModalOpen(false)} />
       )}
 
       {/* Create Structure Modal */}
       {structureModalOpen && activeSemester && (
         <StructureModal
-          schoolId={schoolId}
+          schoolId={effectiveSchoolId}
           semesterId={activeSemester.id}
           categories={categoriesQuery.data ?? []}
           classes={classes.data ?? []}
@@ -506,7 +622,7 @@ export default function SchoolFeesPage() {
       {receiptToPrint && (
         <PrintReceiptModal
           payment={receiptToPrint}
-          schoolName={schoolName ?? 'School Management'}
+          schoolName={effectiveSchoolName}
           onClose={() => setReceiptToPrint(null)}
         />
       )}
@@ -518,18 +634,19 @@ function RecordPaymentModal({
   student,
   semesterId,
   schoolCode,
+  schoolId,
   onClose,
   onSuccess,
 }: {
   student: Student;
   semesterId: string;
   schoolCode: string;
+  schoolId: string;
   onClose: () => void;
   onSuccess: (payment: StudentFeePayment & { student_name: string; admission_number: string }) => void;
 }) {
   const qc = useQueryClient();
   const toast = useToast();
-  const { active } = useAuth();
 
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState<FeePaymentMethod>('cash');
@@ -547,7 +664,7 @@ function RecordPaymentModal({
       if (isNaN(val) || val <= 0) throw new Error('Enter a valid payment amount');
 
       const payload = {
-        school_id: active!.school_id,
+        school_id: schoolId,
         student_id: student.id,
         semester_id: semesterId,
         receipt_number: receiptNumber,
