@@ -276,6 +276,94 @@ export default function SchoolFeesPage() {
     onError: (err) => toast(friendlyError(err), 'error'),
   });
 
+  const billAllMutation = useMutation({
+    mutationFn: async () => {
+      // 1. Fetch fee structures for this semester
+      const { data: structures, error: sErr } = await supabase
+        .from('fee_structures')
+        .select('*')
+        .eq('school_id', effectiveSchoolId)
+        .eq('semester_id', activeSemester!.id);
+      if (sErr) throw sErr;
+      if (!structures?.length) {
+        throw new Error('No fee structures configured for this semester yet. Click "+ Configure Fee" first.');
+      }
+
+      // 2. Fetch all active students
+      const { data: allStudents, error: stuErr } = await supabase
+        .from('students')
+        .select('id, current_class_id')
+        .eq('school_id', effectiveSchoolId)
+        .eq('enrollment_status', 'active');
+      if (stuErr) throw stuErr;
+      if (!allStudents?.length) {
+        throw new Error('No active students found in this school.');
+      }
+
+      // 3. Fetch existing charges for this semester
+      const { data: existingCharges, error: chErr } = await supabase
+        .from('student_fee_charges')
+        .select('student_id, fee_structure_id')
+        .eq('school_id', effectiveSchoolId)
+        .eq('semester_id', activeSemester!.id);
+      if (chErr) throw chErr;
+
+      const existingChargeKeys = new Set(
+        (existingCharges ?? []).map((c) => `${c.student_id}:${c.fee_structure_id}`)
+      );
+
+      const toInsert: {
+        school_id: string;
+        student_id: string;
+        semester_id: string;
+        fee_structure_id: string;
+        category_id: string;
+        description: string;
+        amount: number;
+      }[] = [];
+
+      for (const st of structures) {
+        const eligible = allStudents.filter(
+          (stu) => !st.class_id || stu.current_class_id === st.class_id
+        );
+        for (const stu of eligible) {
+          const key = `${stu.id}:${st.id}`;
+          if (!existingChargeKeys.has(key)) {
+            toInsert.push({
+              school_id: effectiveSchoolId,
+              student_id: stu.id,
+              semester_id: activeSemester!.id,
+              fee_structure_id: st.id,
+              category_id: st.category_id,
+              description: st.name,
+              amount: Number(st.amount),
+            });
+            existingChargeKeys.add(key);
+          }
+        }
+      }
+
+      if (toInsert.length === 0) {
+        throw new Error('All eligible students have already been billed for all configured fee structures.');
+      }
+
+      for (let i = 0; i < toInsert.length; i += 250) {
+        const chunk = toInsert.slice(i, i + 250);
+        const { error: insErr } = await supabase.from('student_fee_charges').insert(chunk);
+        if (insErr) throw insErr;
+      }
+
+      return toInsert.length;
+    },
+    onSuccess: (count) => {
+      toast(`Successfully billed ${count} student charge${count === 1 ? '' : 's'}!`);
+      qc.invalidateQueries({ queryKey: ['student_fee_charges'] });
+      qc.invalidateQueries({ queryKey: ['school_dashboard_fees'] });
+      qc.invalidateQueries({ queryKey: ['fee_structures'] });
+    },
+    onError: (err) => toast(friendlyError(err), 'error'),
+  });
+
   return (
     <>
       <PageHeader
@@ -462,7 +550,21 @@ export default function SchoolFeesPage() {
       )}
 
       {activeTab === 'structures' && (
-        <Card padded={false}>
+        <Card
+          padded={false}
+          actions={
+            structuresQuery.data && structuresQuery.data.length > 0 ? (
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={() => billAllMutation.mutate()}
+                loading={billAllMutation.isPending}
+              >
+                ⚡ Bill All Active Students
+              </Button>
+            ) : undefined
+          }
+        >
           {structuresQuery.isLoading ? (
             <Spinner />
           ) : !structuresQuery.data?.length ? (
@@ -710,12 +812,95 @@ function RecordPaymentModal({
 
   const receiptNumber = generateReceiptNumber(schoolCode || 'FEE');
 
+  // Check if student has existing charges for this semester
+  const studentChargesQuery = useQuery({
+    queryKey: ['student_charges_modal_check', student.id, semesterId],
+    queryFn: () =>
+      unwrap<StudentFeeCharge[]>(
+        supabase
+          .from('student_fee_charges')
+          .select('id, amount, description')
+          .eq('student_id', student.id)
+          .eq('semester_id', semesterId)
+      ),
+  });
+
+  const hasNoCharges = (studentChargesQuery.data ?? []).length === 0;
+
   const saveMutation = useMutation({
     mutationFn: async () => {
       setError(null);
       const val = parseFloat(amount);
       if (isNaN(val) || val <= 0) throw new Error('Enter a valid payment amount');
 
+      // 1. If student has no charges for this semester, auto-apply the school's fee structure
+      // or create a tuition charge so this payment settles their balance instead of creating a negative debt!
+      const { data: existingCharges } = await supabase
+        .from('student_fee_charges')
+        .select('id')
+        .eq('student_id', student.id)
+        .eq('semester_id', semesterId);
+
+      if (!existingCharges || existingCharges.length === 0) {
+        const { data: structures } = await supabase
+          .from('fee_structures')
+          .select('*')
+          .eq('school_id', schoolId)
+          .eq('semester_id', semesterId);
+
+        const applicable = (structures ?? []).filter(
+          (st) => !st.class_id || st.class_id === student.current_class_id
+        );
+
+        if (applicable.length > 0) {
+          const chargePayloads = applicable.map((st) => ({
+            school_id: schoolId,
+            student_id: student.id,
+            semester_id: semesterId,
+            fee_structure_id: st.id,
+            category_id: st.category_id,
+            description: st.name,
+            amount: Number(st.amount),
+          }));
+          await supabase.from('student_fee_charges').insert(chargePayloads);
+        } else {
+          // If no fee structure has been configured for the school yet,
+          // create a general tuition charge matching this payment so the balance stays 0.00
+          let catId: string | null = null;
+          const { data: cat } = await supabase
+            .from('fee_categories')
+            .select('id')
+            .eq('school_id', schoolId)
+            .limit(1)
+            .maybeSingle();
+
+          if (cat) {
+            catId = cat.id;
+          } else {
+            const { data: newCat } = await supabase
+              .from('fee_categories')
+              .insert([{ school_id: schoolId, name: 'School Fees', description: 'General tuition and fees' }])
+              .select('id')
+              .single();
+            catId = newCat?.id ?? null;
+          }
+
+          if (catId) {
+            await supabase.from('student_fee_charges').insert([
+              {
+                school_id: schoolId,
+                student_id: student.id,
+                semester_id: semesterId,
+                category_id: catId,
+                description: 'School Tuition & Fees',
+                amount: val,
+              },
+            ]);
+          }
+        }
+      }
+
+      // 2. Record the payment
       const payload = {
         school_id: schoolId,
         student_id: student.id,
@@ -738,9 +923,11 @@ function RecordPaymentModal({
       return data;
     },
     onSuccess: (data) => {
-      toast('Payment successfully recorded!');
+      toast('Payment successfully recorded and balance updated!');
       qc.invalidateQueries({ queryKey: ['student_fee_payments'] });
       qc.invalidateQueries({ queryKey: ['student_fee_charges'] });
+      qc.invalidateQueries({ queryKey: ['school_dashboard_fees'] });
+      qc.invalidateQueries({ queryKey: ['student_charges_modal_check'] });
       onSuccess({
         ...data,
         student_name: `${student.first_name} ${student.last_name}`,
@@ -767,6 +954,13 @@ function RecordPaymentModal({
       }
     >
       <ErrorBox error={error} />
+      {hasNoCharges && (
+        <Alert tone="info">
+          <span>
+            ℹ️ No fee charges are currently recorded for this student. When you confirm this payment, the fee charge will automatically be created/applied so this receipt settles their account balance instead of showing as a school debt.
+          </span>
+        </Alert>
+      )}
       <div className="form-grid">
         <Input
           label="Payment Amount (GH₵)"
