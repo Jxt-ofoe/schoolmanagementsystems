@@ -16,7 +16,10 @@
     "local:setup": "bash scripts/local-stack/setup.sh",
     "local:start": "bash scripts/local-stack/start.sh",
     "local:seed": "node scripts/local-stack/seed-demo.mjs",
-    "local:reset": "bash scripts/local-stack/reset-db.sh"
+    "local:reset": "bash scripts/local-stack/reset-db.sh",
+    "db:backup": "node scripts/backup-db.cjs",
+    "db:restore": "node scripts/restore-db.cjs",
+    "db:schema": "node scripts/generate-full-schema.cjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.109.0",
