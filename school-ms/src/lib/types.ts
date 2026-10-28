@@ -10,6 +10,22 @@ export interface Membership {
   school_name: string;
   school_code: string;
   school_status: 'pending' | 'active' | 'suspended' | 'inactive';
+  school_logo_url?: string | null;
+}
+
+export interface School {
+  id: string;
+  name: string;
+  code: string;
+  status: 'pending' | 'active' | 'suspended' | 'inactive';
+  email: string | null;
+  phone: string | null;
+  address: string | null;
+  region: string | null;
+  motto: string | null;
+  logo_url?: string | null;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface Profile {

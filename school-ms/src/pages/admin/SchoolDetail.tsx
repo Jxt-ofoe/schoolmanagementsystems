@@ -11,7 +11,7 @@ import { invokeInvite } from '../school/Teachers';
 import type { BillingOverview } from '../../lib/types';
 import { Alert, Badge, Button, Card, ConfirmDialog, EmptyState, ErrorBox, Input, Modal, PageHeader, Spinner, StatCard } from '../../components/ui';
 
-interface School { id: string; name: string; code: string; status: string; email: string | null; phone: string | null; address: string | null; region: string | null; created_at: string }
+interface School { id: string; name: string; code: string; status: string; email: string | null; phone: string | null; address: string | null; region: string | null; logo_url?: string | null; created_at: string }
 interface Member { id: string; user_id: string; role: string; status: string; profiles: { full_name: string; email: string | null } | null }
 
 export default function AdminSchoolDetail() {
@@ -96,7 +96,22 @@ export default function AdminSchoolDetail() {
 
   return (
     <>
-      <PageHeader back={<Link to="/admin/schools">← Schools</Link>} title={s.name}
+      <PageHeader
+        back={<Link to="/admin/schools">← Schools</Link>}
+        title={
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 12 }}>
+            {s.logo_url && (
+              <img
+                src={s.logo_url}
+                alt={s.name}
+                width="36"
+                height="36"
+                style={{ objectFit: 'contain', borderRadius: 4, background: '#fff', border: '1px solid var(--line, #e2e8f0)' }}
+              />
+            )}
+            <span>{s.name}</span>
+          </div>
+        }
         subtitle={<><span className="mono">{s.code}</span> · <Badge value={s.status} /> · created {formatDate(s.created_at)}</>}
         actions={<>
           <Link className="btn btn-secondary" to={`/admin/fees?schoolId=${s.id}`}>Student Fees & Payments</Link>

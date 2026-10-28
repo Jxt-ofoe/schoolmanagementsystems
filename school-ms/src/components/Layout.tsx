@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
+import { useSchoolDetails } from '../lib/queries';
 import { isLocalStack } from '../lib/supabase';
 import { humanize } from '../lib/format';
 
@@ -88,6 +89,9 @@ export function Layout() {
   const navigate = useNavigate();
   useEffect(() => setOpen(false), [location.pathname]);
 
+  const schoolDetails = useSchoolDetails(active?.school_id);
+  const schoolLogo = schoolDetails.data?.logo_url;
+
   const sections = navFor(!!ctx?.is_super_admin, active?.role);
   const name = ctx?.profile?.full_name || ctx?.profile?.email || 'Account';
 
@@ -99,7 +103,17 @@ export function Layout() {
           <svg width="22" height="22" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" aria-hidden><path d="M3 6h18M3 12h18M3 18h18" /></svg>
         </button>
         <div className="brand">
-          <img src="/favicon.svg" alt="" width="28" height="28" />
+          <img
+            src={schoolLogo || '/favicon.svg'}
+            alt=""
+            width="28"
+            height="28"
+            style={{
+              objectFit: 'contain',
+              borderRadius: schoolLogo ? '4px' : undefined,
+              background: schoolLogo ? '#ffffff' : undefined,
+            }}
+          />
           <span>{active?.school_name ?? 'School Management'}</span>
         </div>
         <div className="topbar-right">
@@ -109,9 +123,22 @@ export function Layout() {
 
       <aside className={`sidebar ${open ? 'open' : ''}`} aria-label="Main navigation">
         <div className="sidebar-brand">
-          <img src="/favicon.svg" alt="" width="32" height="32" />
+          <img
+            src={schoolLogo || '/favicon.svg'}
+            alt=""
+            width="32"
+            height="32"
+            style={{
+              objectFit: 'contain',
+              borderRadius: schoolLogo ? '6px' : undefined,
+              background: schoolLogo ? '#ffffff' : undefined,
+              padding: schoolLogo ? '2px' : undefined,
+            }}
+          />
           <div>
-            <strong>School MS</strong>
+            <strong className="truncate" style={{ maxWidth: 165, display: 'block' }}>
+              {active?.school_name || 'School MS'}
+            </strong>
             <small>{ctx?.is_super_admin ? 'Platform admin' : humanize(active?.role)}</small>
           </div>
         </div>

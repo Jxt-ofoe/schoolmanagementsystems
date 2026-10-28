@@ -3,7 +3,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../lib/auth';
-import { semesterLabel, unwrap, useClasses, useGradeBands, useSemesters } from '../../lib/queries';
+import { semesterLabel, unwrap, useClasses, useGradeBands, useSchoolDetails, useSemesters } from '../../lib/queries';
 import { classLabel, formatDate, todayISO } from '../../lib/format';
 import { friendlyError } from '../../lib/errors';
 import { useToast } from '../../lib/toast';
@@ -44,13 +44,7 @@ export default function TerminalReportViewPage() {
   const [nextTermBegins, setNextTermBegins] = useState('');
 
   // School profile & info
-  const schoolQuery = useQuery({
-    queryKey: ['school_profile_report', schoolId],
-    queryFn: () =>
-      unwrap<{ name: string; motto: string | null; email: string | null; phone: string | null; address: string | null }>(
-        supabase.from('schools').select('name, motto, email, phone, address').eq('id', schoolId!).single()
-      ),
-  });
+  const schoolQuery = useSchoolDetails(schoolId);
 
   // Student details
   const studentQuery = useQuery({
@@ -270,8 +264,18 @@ export default function TerminalReportViewPage() {
         
         {/* School Header */}
         <div style={{ textAlign: 'center', borderBottom: '2px solid var(--green-800)', paddingBottom: 12, marginBottom: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 4 }}>
-            <img src="/favicon.svg" alt="" width="48" height="48" />
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, marginBottom: 4 }}>
+            {school?.logo_url ? (
+              <img
+                src={school.logo_url}
+                alt={school.name}
+                width="64"
+                height="64"
+                style={{ objectFit: 'contain', maxHeight: 64, maxWidth: 64 }}
+              />
+            ) : (
+              <img src="/favicon.svg" alt="" width="48" height="48" />
+            )}
             <div>
               <h1 style={{ fontSize: '1.45rem', textTransform: 'uppercase', color: 'var(--green-900)', margin: 0 }}>
                 {school?.name || 'School Management System'}

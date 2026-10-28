@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useRef, useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { useAuth, useSchool } from '../../lib/auth';
-import { unwrap, useGradeBands } from '../../lib/queries';
+import { useGradeBands, useSchoolDetails } from '../../lib/queries';
 import { friendlyError } from '../../lib/errors';
 import { useToast } from '../../lib/toast';
 import type { GradeBand } from '../../lib/types';
@@ -21,15 +21,27 @@ function SchoolProfile() {
   const { schoolId } = useSchool();
   const { refreshContext } = useAuth();
   const toast = useToast();
-  const school = useQuery({
-    queryKey: ['school', schoolId],
-    queryFn: () => unwrap<{ name: string; code: string; email: string | null; phone: string | null; address: string | null; region: string | null; motto: string | null; status: string }>(
-      supabase.from('schools').select('*').eq('id', schoolId).single()),
-  });
+  const qc = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [confirmDeleteLogo, setConfirmDeleteLogo] = useState(false);
+
+  const school = useSchoolDetails(schoolId);
+
   const [v, setV] = useState({ name: '', email: '', phone: '', address: '', region: '', motto: '' });
   useEffect(() => {
-    if (school.data) setV({ name: school.data.name, email: school.data.email ?? '', phone: school.data.phone ?? '', address: school.data.address ?? '', region: school.data.region ?? '', motto: school.data.motto ?? '' });
+    if (school.data) {
+      setV({
+        name: school.data.name,
+        email: school.data.email ?? '',
+        phone: school.data.phone ?? '',
+        address: school.data.address ?? '',
+        region: school.data.region ?? '',
+        motto: school.data.motto ?? '',
+      });
+    }
   }, [school.data]);
+
   const m = useMutation({
     mutationFn: async () => {
       if (v.name.trim().length < 2) throw new Error('School name is required');
@@ -37,11 +49,184 @@ function SchoolProfile() {
       const { error } = await supabase.from('schools').update(clean).eq('id', schoolId);
       if (error) throw error;
     },
-    onSuccess: async () => { toast('School profile saved'); await refreshContext(); },
+    onSuccess: async () => {
+      toast('School profile saved');
+      qc.invalidateQueries({ queryKey: ['school', schoolId] });
+      qc.invalidateQueries({ queryKey: ['school_details', schoolId] });
+      await refreshContext();
+    },
   });
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 3 * 1024 * 1024) {
+      toast('Image file exceeds 3MB limit. Please select a smaller file.', 'error');
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve, reject) => {
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+      });
+      reader.readAsDataURL(file);
+      const dataUrl = await base64Promise;
+
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+
+      const res = await fetch('/api/school/logo', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          school_id: schoolId,
+          file: dataUrl,
+          content_type: file.type,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok) {
+        throw new Error(json.error || 'Failed to upload school logo');
+      }
+
+      toast('School logo uploaded successfully!');
+      qc.invalidateQueries({ queryKey: ['school', schoolId] });
+      qc.invalidateQueries({ queryKey: ['school_details', schoolId] });
+      qc.invalidateQueries({ queryKey: ['my_context'] });
+      await refreshContext();
+    } catch (err: any) {
+      toast(friendlyError(err), 'error');
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleRemoveLogo = async () => {
+    setUploading(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+
+      const res = await fetch('/api/school/logo', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          school_id: schoolId,
+          remove: true,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok) {
+        throw new Error(json.error || 'Failed to remove school logo');
+      }
+
+      toast('School logo removed');
+      setConfirmDeleteLogo(false);
+      qc.invalidateQueries({ queryKey: ['school', schoolId] });
+      qc.invalidateQueries({ queryKey: ['school_details', schoolId] });
+      qc.invalidateQueries({ queryKey: ['my_context'] });
+      await refreshContext();
+    } catch (err: any) {
+      toast(friendlyError(err), 'error');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   if (school.isLoading) return <Card title="School profile"><Spinner /></Card>;
+
+  const logoUrl = school.data?.logo_url;
+
   return (
     <Card title="School profile">
+      {/* School Logo Section */}
+      <div style={{
+        padding: '16px',
+        marginBottom: '20px',
+        background: 'var(--surface-sunken, #f8fafc)',
+        borderRadius: 'var(--radius, 8px)',
+        border: '1px solid var(--line, #e2e8f0)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '18px', flexWrap: 'wrap' }}>
+          <div style={{
+            width: 80,
+            height: 80,
+            borderRadius: 10,
+            border: '2px dashed var(--line, #cbd5e1)',
+            background: '#ffffff',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            overflow: 'hidden',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+            flexShrink: 0,
+          }}>
+            {logoUrl ? (
+              <img
+                src={logoUrl}
+                alt={school.data?.name || 'School Logo'}
+                style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+              />
+            ) : (
+              <div style={{ textAlign: 'center', color: 'var(--muted, #64748b)' }}>
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M12 3 2 8l10 5 10-5-10-5Zm-6 8v5c0 2 3 4 6 4s6-2 6-4v-5" />
+                </svg>
+              </div>
+            )}
+          </div>
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: 2 }}>
+              Official School Logo
+            </div>
+            <div style={{ fontSize: '0.82rem', color: 'var(--muted, #64748b)', marginBottom: 10 }}>
+              {logoUrl ? 'Custom logo active. Displayed on terminal reports, receipts, and navigation.' : 'No custom logo uploaded yet. Default system emblem is used.'}
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input
+                type="file"
+                ref={fileInputRef}
+                accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                onChange={handleFileSelect}
+                style={{ display: 'none' }}
+              />
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+                loading={uploading}
+              >
+                {logoUrl ? '📷 Change Logo' : '📤 Upload School Logo'}
+              </Button>
+              {logoUrl && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setConfirmDeleteLogo(true)}
+                  disabled={uploading}
+                >
+                  Remove
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
       <form onSubmit={(e) => { e.preventDefault(); m.mutate(); }}>
         {m.error && <Alert tone="error">{friendlyError(m.error)}</Alert>}
         <Input label="School name" value={v.name} onChange={(e) => setV({ ...v, name: e.target.value })} required />
@@ -55,6 +240,17 @@ function SchoolProfile() {
         <p className="muted small">School code: <span className="mono">{school.data?.code}</span> · status and code are managed by the platform administrator.</p>
         <Button type="submit" loading={m.isPending}>Save profile</Button>
       </form>
+
+      <ConfirmDialog
+        open={confirmDeleteLogo}
+        danger
+        title="Remove school logo"
+        confirmLabel="Remove Logo"
+        loading={uploading}
+        message="Are you sure you want to remove the custom school logo? The school will revert to the default emblem."
+        onCancel={() => setConfirmDeleteLogo(false)}
+        onConfirm={handleRemoveLogo}
+      />
     </Card>
   );
 }

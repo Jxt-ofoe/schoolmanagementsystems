@@ -26,13 +26,55 @@ function adminApiPlugin() {
     }
   };
 
+  const logoHandler = async (req: any, res: any) => {
+    if (req.method === 'GET') {
+      try {
+        const url = new URL(req.url, 'http://localhost');
+        const schoolId = url.searchParams.get('school_id');
+        const { handleGetSchoolLogo } = await import('./api/school/logo.js');
+        const result = await handleGetSchoolLogo(schoolId);
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify(result));
+      } catch (err: any) {
+        res.statusCode = 400;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: err.message || 'Failed to get school logo' }));
+      }
+      return;
+    }
+
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', (chunk: any) => { body += chunk; });
+      req.on('end', async () => {
+        try {
+          const data = JSON.parse(body);
+          const authHeader = req.headers['authorization'];
+          const { handleSchoolLogo } = await import('./api/school/logo.js');
+          const result = await handleSchoolLogo(data, authHeader);
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify(result));
+        } catch (err: any) {
+          res.statusCode = 400;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: err.message || 'Failed to update school logo' }));
+        }
+      });
+    } else {
+      res.statusCode = 405;
+      res.end(JSON.stringify({ error: 'Method not allowed' }));
+    }
+  };
+
   return {
     name: 'admin-api-plugin',
     configureServer(server: any) {
       server.middlewares.use('/api/staff/create', handler);
+      server.middlewares.use('/api/school/logo', logoHandler);
     },
     configurePreviewServer(server: any) {
       server.middlewares.use('/api/staff/create', handler);
+      server.middlewares.use('/api/school/logo', logoHandler);
     },
   };
 }

@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../lib/auth';
-import { semesterLabel, unwrap, useClasses, useSemesters } from '../../lib/queries';
+import { semesterLabel, unwrap, useClasses, useSchoolDetails, useSemesters } from '../../lib/queries';
 import { classLabel, formatDate, formatMoney, humanize, todayISO } from '../../lib/format';
 import { computeFeeSummary, generateReceiptNumber } from '../../lib/fees';
 import { friendlyError } from '../../lib/errors';
@@ -63,6 +63,8 @@ export default function SchoolFeesPage() {
   const toast = useToast();
   const semesters = useSemesters(effectiveSchoolId);
   const classes = useClasses(effectiveSchoolId);
+  const schoolDetails = useSchoolDetails(effectiveSchoolId);
+  const schoolLogo = schoolDetails.data?.logo_url;
 
   const [activeTab, setActiveTab] = useState<'overview' | 'structures' | 'assign' | 'payments' | 'history'>('overview');
   const [semesterId, setSemesterId] = useState('');
@@ -778,6 +780,7 @@ export default function SchoolFeesPage() {
         <PrintReceiptModal
           payment={receiptToPrint}
           schoolName={effectiveSchoolName}
+          schoolLogo={schoolLogo}
           onClose={() => setReceiptToPrint(null)}
         />
       )}
@@ -1259,10 +1262,12 @@ function ReversePaymentModal({
 function PrintReceiptModal({
   payment,
   schoolName,
+  schoolLogo,
   onClose,
 }: {
   payment: StudentFeePayment & { student_name?: string; admission_number?: string };
   schoolName: string;
+  schoolLogo?: string | null;
   onClose: () => void;
 }) {
   return (
@@ -1278,10 +1283,27 @@ function PrintReceiptModal({
       }
     >
       <div className="printable-receipt" style={{ padding: 16, border: '1px solid var(--line)', borderRadius: 8, background: '#fff' }}>
-        <div style={{ textAlign: 'center', borderBottom: '2px solid var(--green-800)', paddingBottom: 8, marginBottom: 12 }}>
-          <h3 style={{ textTransform: 'uppercase', color: 'var(--green-900)', margin: 0 }}>{schoolName}</h3>
-          <div style={{ fontSize: '0.8rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Official Fee Receipt
+        <div style={{ textAlign: 'center', borderBottom: '2px solid var(--green-800)', paddingBottom: 10, marginBottom: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 4 }}>
+            {schoolLogo ? (
+              <img
+                src={schoolLogo}
+                alt={schoolName}
+                width="48"
+                height="48"
+                style={{ objectFit: 'contain', maxHeight: 48, maxWidth: 48 }}
+              />
+            ) : (
+              <img src="/favicon.svg" alt="" width="36" height="36" />
+            )}
+            <div>
+              <h3 style={{ textTransform: 'uppercase', color: 'var(--green-900)', margin: 0, fontSize: '1.2rem' }}>
+                {schoolName}
+              </h3>
+              <div style={{ fontSize: '0.8rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Official Fee Receipt
+              </div>
+            </div>
           </div>
         </div>
 

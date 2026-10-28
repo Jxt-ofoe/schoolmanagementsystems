@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from './supabase';
-import type { ClassRow, GradeBand, Semester, SubjectRow } from './types';
+import type { ClassRow, GradeBand, School, Semester, SubjectRow } from './types';
 
 /** Throw Supabase errors so react-query surfaces them. */
 // Without generated DB types, supabase-js infers to-one embeds as arrays; at runtime they are objects. Callers state T explicitly.
@@ -74,3 +74,33 @@ export function semesterLabel(s: Semester | undefined | null): string {
   if (!s) return '—';
   return s.academic_years?.name ? `${s.academic_years.name} · ${s.name}` : s.name;
 }
+
+export function useSchoolDetails(schoolId: string | undefined) {
+  return useQuery({
+    queryKey: ['school_details', schoolId],
+    enabled: !!schoolId,
+    queryFn: async () => {
+      const data = await unwrap<School>(
+        supabase.from('schools').select('*').eq('id', schoolId!).single()
+      );
+
+      // If logo_url is not present or null on the row, check if an uploaded logo exists via API
+      if (!data.logo_url) {
+        try {
+          const res = await fetch(`/api/school/logo?school_id=${schoolId}`);
+          if (res.ok) {
+            const json = await res.json();
+            if (json?.url) {
+              data.logo_url = json.url;
+            }
+          }
+        } catch {
+          // ignore network fallback error
+        }
+      }
+
+      return data;
+    },
+  });
+}
+
