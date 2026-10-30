@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
@@ -7,7 +7,7 @@ import { semesterLabel, unwrap, useClasses, useGradeBands, useSchoolDetails, use
 import { classLabel, formatDate, todayISO } from '../../lib/format';
 import { friendlyError } from '../../lib/errors';
 import { useToast } from '../../lib/toast';
-import { gradeFor } from '../../lib/grades';
+import { computePositions, formatPosition, gradeFor } from '../../lib/grades';
 import type { SchoolGradingConfig, Student, TerminalReport } from '../../lib/types';
 import {
   Alert,
@@ -140,6 +140,90 @@ export default function TerminalReportViewPage() {
   const overallGrade = gradeFor(averagePercentage, gradeBands.data?.bands ?? []);
   const incompleteCount = results.filter((r) => r.scores_entered < r.assessments_count).length;
 
+  // Class assessments & students to compute overall class ranking
+  const classAssessmentsQuery = useQuery({
+    queryKey: ['terminal_class_assessments', classId, semesterId],
+    enabled: !!classId && !!semesterId,
+    queryFn: () =>
+      unwrap<
+        {
+          id: string;
+          subject_id: string;
+          max_score: number;
+          weight: number;
+          scores: { student_id: string; score: number | null; status: string }[];
+        }[]
+      >(
+        supabase
+          .from('assessments')
+          .select('id, subject_id, max_score, weight, scores(student_id, score, status)')
+          .eq('class_id', classId)
+          .eq('semester_id', semesterId)
+      ),
+  });
+
+  const classStudentsQuery = useQuery({
+    queryKey: ['terminal_class_students', classId],
+    enabled: !!classId,
+    queryFn: () =>
+      unwrap<{ id: string }[]>(
+        supabase
+          .from('students')
+          .select('id')
+          .eq('current_class_id', classId)
+          .eq('enrollment_status', 'active')
+      ),
+  });
+
+  // Calculate overall class positions
+  const classRanking = useMemo(() => {
+    const students = classStudentsQuery.data ?? [];
+    const assessments = classAssessmentsQuery.data ?? [];
+    if (!students.length) return null;
+
+    // Group assessments by subject
+    const bySubject = new Map<string, typeof assessments>();
+    for (const a of assessments) {
+      const list = bySubject.get(a.subject_id) ?? [];
+      list.push(a);
+      bySubject.set(a.subject_id, list);
+    }
+
+    const studentScores = students.map((s) => {
+      let stuTotal = 0;
+      let hasAny = false;
+
+      for (const [, subjAssessments] of bySubject.entries()) {
+        for (const a of subjAssessments) {
+          const sc = a.scores?.find((x) => x.student_id === s.id);
+          if (sc && sc.score !== null && sc.status !== 'missing' && sc.status !== 'absent' && sc.status !== 'exempted') {
+            stuTotal += (Number(sc.score) / Number(a.max_score)) * Number(a.weight);
+            hasAny = true;
+          }
+        }
+      }
+
+      return {
+        id: s.id,
+        score: hasAny ? Math.round(stuTotal * 100) / 100 : null,
+      };
+    });
+
+    const tiePolicy = gradingConfig.data?.tie_ranking_policy || 'dense';
+    const ranked = computePositions(studentScores, tiePolicy);
+    const myMatch = ranked.find((r) => r.id === studentId);
+    const highestScore = Math.max(0, ...studentScores.map((s) => s.score ?? 0));
+
+    return {
+      totalStudents: students.length,
+      computedPosition: myMatch?.position ?? null,
+      highestScore,
+    };
+  }, [classStudentsQuery.data, classAssessmentsQuery.data, gradingConfig.data, studentId]);
+
+  const displayPosition = existingReport.data?.position ?? classRanking?.computedPosition ?? null;
+  const totalStudents = existingReport.data?.total_students || classRanking?.totalStudents || 0;
+
   const saveReportMutation = useMutation({
     mutationFn: async (publish: boolean) => {
       if (!currentSemester?.academic_year_id || !classId) {
@@ -156,6 +240,8 @@ export default function TerminalReportViewPage() {
         total_score: totalScore,
         average_score: averagePercentage ?? 0,
         overall_grade: overallGrade?.grade ?? null,
+        position: displayPosition,
+        total_students: totalStudents,
         subjects_count: results.length,
         incomplete_subjects: incompleteCount,
         attendance_present: attendanceQuery.data?.present ?? 0,
@@ -177,6 +263,8 @@ export default function TerminalReportViewPage() {
           overall_grade: overallGrade?.grade,
           average: averagePercentage,
           total: totalScore,
+          position: displayPosition,
+          total_students: totalStudents,
         },
         published_at: publish ? new Date().toISOString() : null,
       };
@@ -189,6 +277,7 @@ export default function TerminalReportViewPage() {
     onSuccess: (_, publish) => {
       toast(publish ? 'Report approved and published!' : 'Report remarks saved as draft');
       qc.invalidateQueries({ queryKey: ['terminal_report', studentId] });
+      qc.invalidateQueries({ queryKey: ['batch_saved_reports'] });
     },
     onError: (err) => {
       toast(friendlyError(err), 'error');
@@ -364,9 +453,15 @@ export default function TerminalReportViewPage() {
           </div>
           <div>
             <div className="small muted">Class Position</div>
-            <strong style={{ fontSize: '1.15rem' }}>
-              {existingReport.data?.position ? `#${existingReport.data.position}` : '—'}
+            <strong style={{ fontSize: '1.15rem', color: displayPosition === 1 ? 'var(--green-700)' : 'var(--ink)' }}>
+              {displayPosition ? formatPosition(displayPosition, totalStudents) : '—'}
+              {displayPosition === 1 && ' 🏆'}
             </strong>
+            {classRanking && classRanking.highestScore > 0 && (
+              <div className="small muted" style={{ fontSize: '0.72rem', marginTop: 2 }}>
+                Top score: {classRanking.highestScore}
+              </div>
+            )}
           </div>
         </div>
 

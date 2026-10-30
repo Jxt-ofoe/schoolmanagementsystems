@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from './supabase';
-import type { ClassRow, GradeBand, School, Semester, SubjectRow } from './types';
+import type { ClassRow, GradeBand, School, SchoolGradingConfig, Semester, SubjectRow } from './types';
 
 /** Throw Supabase errors so react-query surfaces them. */
 // Without generated DB types, supabase-js infers to-one embeds as arrays; at runtime they are objects. Callers state T explicitly.
@@ -100,6 +100,22 @@ export function useSchoolDetails(schoolId: string | undefined) {
       }
 
       return data;
+    },
+  });
+}
+
+export function useGradingConfig(schoolId: string | undefined) {
+  return useQuery({
+    queryKey: ['grading_config', schoolId],
+    enabled: !!schoolId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('school_grading_configs')
+        .select('*')
+        .eq('school_id', schoolId!)
+        .maybeSingle();
+      if (error) return null;
+      return data as SchoolGradingConfig | null;
     },
   });
 }

@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { useSchool } from '../../lib/auth';
 import { semesterLabel, unwrap, useClasses, useSemesters, useSubjects } from '../../lib/queries';
 import { classLabel, formatDate, todayISO } from '../../lib/format';
+import { computePositions, formatPosition } from '../../lib/grades';
 import { downloadCsv } from '../../lib/csv';
 import { Button, Card, EmptyState, ErrorBox, PageHeader, Select, Spinner, Tabs } from '../../components/ui';
 
@@ -38,10 +39,20 @@ function ClassResults() {
     enabled: !!sem && !!classId && !!subjectId,
     queryFn: () => unwrap<ResultRow[]>(supabase.rpc('class_subject_results', { p_semester_id: sem!.id, p_class_id: classId, p_subject_id: subjectId })),
   });
-  const rows = [...(results.data ?? [])].sort((a, b) => Number(b.total) - Number(a.total));
+  const rankedRows = useMemo(() => {
+    const raw = results.data ?? [];
+    const rankable = raw.map((r) => ({
+      ...r,
+      id: r.student_id,
+      score: r.percentage !== null ? Number(r.total) : null,
+    }));
+    const ranked = computePositions(rankable, 'dense');
+    return [...ranked].sort((a, b) => (a.position ?? 9999) - (b.position ?? 9999));
+  }, [results.data]);
+
   const cls = classes.data?.find((c) => c.id === classId);
   const subj = subjects.data?.find((s) => s.id === subjectId);
-  const avg = rows.length ? (rows.reduce((s, r) => s + Number(r.percentage ?? 0), 0) / rows.length).toFixed(1) : '—';
+  const avg = rankedRows.length ? (rankedRows.reduce((s, r) => s + Number(r.percentage ?? 0), 0) / rankedRows.length).toFixed(1) : '—';
 
   return (
     <>
@@ -57,20 +68,30 @@ function ClassResults() {
         </Select>
       </div>
       <div className="print-only"><h2>{schoolName}</h2><p>{subj?.name} · {classLabel(cls)} · {semesterLabel(sem)} · printed {formatDate(todayISO())}</p></div>
-      <Card padded={false} title={cls && subj ? `${subj.name} · ${classLabel(cls)} · class average ${avg}%` : 'Class results'} actions={rows.length > 0 && <>
+      <Card padded={false} title={cls && subj ? `${subj.name} · ${classLabel(cls)} · class average ${avg}%` : 'Class results'} actions={rankedRows.length > 0 && <>
         <Button size="sm" variant="secondary" onClick={() => window.print()}>Print</Button>
-        <Button size="sm" variant="secondary" onClick={() => downloadCsv(`results-${classLabel(cls)}-${subj?.name}.csv`, rows.map((r, i) => ({
-          position: i + 1, admission_number: r.admission_number, student: r.student_name, total: r.total, out_of: r.weight_total,
+        <Button size="sm" variant="secondary" onClick={() => downloadCsv(`results-${classLabel(cls)}-${subj?.name}.csv`, rankedRows.map((r) => ({
+          position: r.position ? formatPosition(r.position) : '—', admission_number: r.admission_number, student: r.student_name, total: r.total, out_of: r.weight_total,
           percentage: r.percentage ?? '', grade: r.grade ?? '', remark: r.remark ?? '' })))}>Export CSV</Button>
         <Link className="btn btn-sm btn-secondary" to={`/grades/${classId}/${subjectId}?semester=${sem?.id}`}>Open grade sheet</Link>
       </>}>
         <ErrorBox error={results.error} />
-        {!classId || !subjectId ? <EmptyState title="Choose a class and subject" /> : results.isLoading ? <Spinner /> : !rows.length ? <EmptyState title="No results" /> : (
+        {!classId || !subjectId ? <EmptyState title="Choose a class and subject" /> : results.isLoading ? <Spinner /> : !rankedRows.length ? <EmptyState title="No results" /> : (
           <div className="table-wrap"><table>
             <thead><tr><th className="num">Pos.</th><th>Student</th><th className="num">Total</th><th className="num">%</th><th>Grade</th><th>Remark</th><th>Complete</th></tr></thead>
-            <tbody>{rows.map((r, i) => (
+            <tbody>{rankedRows.map((r) => (
               <tr key={r.student_id}>
-                <td className="num">{i + 1}</td><td>{r.student_name} <span className="muted small mono">{r.admission_number}</span></td>
+                <td className="num">
+                  {r.position ? (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      {r.position === 1 && '🥇'}
+                      {r.position === 2 && '🥈'}
+                      {r.position === 3 && '🥉'}
+                      <strong>{formatPosition(r.position)}</strong>
+                    </span>
+                  ) : '—'}
+                </td>
+                <td>{r.student_name} <span className="muted small mono">{r.admission_number}</span></td>
                 <td className="num">{Number(r.total).toFixed(1)} / {Number(r.weight_total)}</td><td className="num">{r.percentage ?? '—'}</td>
                 <td><strong>{r.grade ?? '—'}</strong></td><td>{r.remark ?? ''}</td>
                 <td className="small muted">{r.scores_entered}/{r.assessments_count}</td>

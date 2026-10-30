@@ -120,7 +120,7 @@ export function remainingWeight(assessments: CalcAssessment[], excludeId?: strin
 
 export interface RankableItem {
   id: string;
-  score: number;
+  score: number | null | undefined;
   isProvisional?: boolean;
 }
 
@@ -129,6 +129,9 @@ export interface RankableItem {
  * - 'dense': 1, 2, 2, 3 (ties share rank, subsequent incremented by 1)
  * - 'standard': 1, 2, 2, 4 (ties share rank, subsequent skips)
  * - 'none': all ranks null
+ *
+ * First position goes to the item with the highest score.
+ * Items with null, undefined, or NaN score receive position: null.
  */
 export function computePositions<T extends RankableItem>(
   items: T[],
@@ -138,25 +141,73 @@ export function computePositions<T extends RankableItem>(
     return items.map((it) => ({ ...it, position: null }));
   }
 
-  // Sort descending by score
-  const sorted = [...items].sort((a, b) => b.score - a.score);
-  const result: (T & { position: number | null })[] = [];
+  // Separate valid scored items from unscored items
+  const scored: T[] = [];
+  const unscoredIds = new Set<string>();
+
+  for (const it of items) {
+    if (it.score !== null && it.score !== undefined && !Number.isNaN(Number(it.score))) {
+      scored.push(it);
+    } else {
+      unscoredIds.add(it.id);
+    }
+  }
+
+  if (!scored.length) {
+    return items.map((it) => ({ ...it, position: null }));
+  }
+
+  // Sort descending by score: highest score receives first position
+  const sorted = [...scored].sort((a, b) => Number(b.score) - Number(a.score));
+  const rankMap = new Map<string, number | null>();
 
   let currentRank = 1;
   for (let i = 0; i < sorted.length; i++) {
     const item = sorted[i];
     if (i > 0) {
-      if (item.score === sorted[i - 1].score) {
+      if (Number(item.score) === Number(sorted[i - 1].score)) {
         // Tied
-        result.push({ ...item, position: result[i - 1].position });
+        rankMap.set(item.id, rankMap.get(sorted[i - 1].id) ?? currentRank);
         continue;
       } else {
-        currentRank = policy === 'dense' ? (result[i - 1].position ?? 0) + 1 : i + 1;
+        currentRank = policy === 'dense' ? (rankMap.get(sorted[i - 1].id) ?? 0) + 1 : i + 1;
       }
     }
-    result.push({ ...item, position: currentRank });
+    rankMap.set(item.id, currentRank);
   }
 
-  return result;
+  return items.map((it) => ({
+    ...it,
+    position: unscoredIds.has(it.id) ? null : (rankMap.get(it.id) ?? null),
+  }));
 }
+
+/**
+ * Returns ordinal string suffix, e.g. 1 -> "1st", 2 -> "2nd", 3 -> "3rd", 4 -> "4th", 21 -> "21st"
+ */
+export function ordinalSuffix(n: number): string {
+  const abs = Math.abs(Math.round(n));
+  const j = abs % 10;
+  const k = abs % 100;
+  if (j === 1 && k !== 11) return `${abs}st`;
+  if (j === 2 && k !== 12) return `${abs}nd`;
+  if (j === 3 && k !== 13) return `${abs}rd`;
+  return `${abs}th`;
+}
+
+/**
+ * Formats a position number nicely, e.g.
+ * formatPosition(1) => "1st"
+ * formatPosition(1, 35) => "1st of 35"
+ * formatPosition(null) => "—"
+ */
+export function formatPosition(position: number | null | undefined, total?: number | null): string {
+  if (position === null || position === undefined || position <= 0) return '—';
+  const ord = ordinalSuffix(position);
+  if (total && total > 0) {
+    return `${ord} of ${total}`;
+  }
+  return ord;
+}
+
 

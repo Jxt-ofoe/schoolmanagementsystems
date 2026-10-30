@@ -1,4 +1,4 @@
-import { computePositions, computeResult, gradeFor, remainingWeight, validateScore } from '../grades';
+import { computePositions, computeResult, formatPosition, gradeFor, ordinalSuffix, remainingWeight, validateScore } from '../grades';
 
 const bands = [
   { min_score: 80, grade: 'A', remark: 'Excellent' }, { min_score: 70, grade: 'B', remark: 'Very good' },
@@ -137,5 +137,46 @@ describe('computePositions', () => {
     const ranked = computePositions(students, 'none');
     expect(ranked[0].position).toBeNull();
   });
+
+  it('assigns 1st position to highest score and null position to unscored students', () => {
+    const students = [
+      { id: 's1', score: 60 },
+      { id: 's2', score: 98 }, // Highest score
+      { id: 's3', score: null }, // Unscored
+      { id: 's4', score: 85 },
+      { id: 's5', score: undefined }, // Unscored
+    ];
+    const ranked = computePositions(students, 'dense');
+    expect(ranked.find((s) => s.id === 's2')?.position).toBe(1); // 1st position to highest score
+    expect(ranked.find((s) => s.id === 's4')?.position).toBe(2);
+    expect(ranked.find((s) => s.id === 's1')?.position).toBe(3);
+    expect(ranked.find((s) => s.id === 's3')?.position).toBeNull();
+    expect(ranked.find((s) => s.id === 's5')?.position).toBeNull();
+  });
 });
+
+describe('formatPosition and ordinalSuffix', () => {
+  it('formats ordinal suffixes correctly', () => {
+    expect(ordinalSuffix(1)).toBe('1st');
+    expect(ordinalSuffix(2)).toBe('2nd');
+    expect(ordinalSuffix(3)).toBe('3rd');
+    expect(ordinalSuffix(4)).toBe('4th');
+    expect(ordinalSuffix(11)).toBe('11th');
+    expect(ordinalSuffix(12)).toBe('12th');
+    expect(ordinalSuffix(13)).toBe('13th');
+    expect(ordinalSuffix(21)).toBe('21st');
+    expect(ordinalSuffix(22)).toBe('22nd');
+    expect(ordinalSuffix(23)).toBe('23rd');
+  });
+
+  it('formats position strings with or without class totals', () => {
+    expect(formatPosition(1)).toBe('1st');
+    expect(formatPosition(1, 35)).toBe('1st of 35');
+    expect(formatPosition(2, 35)).toBe('2nd of 35');
+    expect(formatPosition(null)).toBe('—');
+    expect(formatPosition(undefined)).toBe('—');
+    expect(formatPosition(0)).toBe('—');
+  });
+});
+
 

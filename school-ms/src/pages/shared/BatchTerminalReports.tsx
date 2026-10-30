@@ -1,11 +1,13 @@
 import { useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../lib/auth';
-import { semesterLabel, unwrap, useClasses, useGradeBands, useSchoolDetails, useSemesters } from '../../lib/queries';
+import { semesterLabel, unwrap, useClasses, useGradeBands, useGradingConfig, useSchoolDetails, useSemesters } from '../../lib/queries';
 import { classLabel } from '../../lib/format';
-import { gradeFor } from '../../lib/grades';
+import { computePositions, formatPosition, gradeFor } from '../../lib/grades';
+import { useToast } from '../../lib/toast';
+import { friendlyError } from '../../lib/errors';
 import type { Student, SubjectRow } from '../../lib/types';
 import {
   Button,
@@ -19,11 +21,14 @@ import {
 export default function BatchTerminalReportsPage() {
   const { active } = useAuth();
   const schoolId = active?.school_id;
+  const qc = useQueryClient();
+  const toast = useToast();
   const [params, setParams] = useSearchParams();
 
   const semesters = useSemesters(schoolId);
   const classes = useClasses(schoolId);
   const gradeBands = useGradeBands(schoolId);
+  const gradingConfig = useGradingConfig(schoolId);
 
   const semesterId = params.get('semester') || semesters.data?.find((s) => s.is_current)?.id || '';
   const classId = params.get('class') || '';
@@ -137,7 +142,7 @@ export default function BatchTerminalReportsPage() {
 
   // Process reports for all students
   const studentReports = useMemo(() => {
-    return students.map((stu) => {
+    const preReports = students.map((stu) => {
       let totalAccumulator = 0;
       let subjectsCounted = 0;
       let hasMissing = false;
@@ -191,8 +196,9 @@ export default function BatchTerminalReportsPage() {
         total: Math.round(totalAccumulator * 100) / 100,
         average,
         overallGrade: overallGrade?.grade ?? '—',
-        position: saved?.position ?? null,
+        saved,
         isProvisional: hasMissing,
+        hasScores: subjectsCounted > 0 && totalAccumulator > 0,
         conduct: saved?.conduct ?? 'Satisfactory',
         attitude: saved?.attitude ?? 'Attentive',
         interest: saved?.interest ?? 'General Studies',
@@ -201,7 +207,78 @@ export default function BatchTerminalReportsPage() {
         attendance: att,
       };
     });
-  }, [students, subjects, assessments, bands, savedReportsQuery.data, attendanceQuery.data]);
+
+    // Rank students by overall performance (1st position goes to the student who had highest score in the class)
+    const rankable = preReports.map((r) => {
+      const hasAnyScore = r.results.some((s) => s.percentage !== null) || r.hasScores;
+      return {
+        id: r.student.id,
+        score: hasAnyScore ? r.total : null,
+      };
+    });
+    const tiePolicy = gradingConfig.data?.tie_ranking_policy || 'dense';
+    const ranked = computePositions(rankable, tiePolicy);
+
+    return preReports.map((r) => {
+      const match = ranked.find((rk) => rk.id === r.student.id);
+      const computedPos = match?.position ?? null;
+      const position = r.saved?.position ?? computedPos;
+
+      return {
+        ...r,
+        position,
+      };
+    });
+  }, [students, subjects, assessments, bands, savedReportsQuery.data, attendanceQuery.data, gradingConfig.data]);
+
+  const saveAllMutation = useMutation({
+    mutationFn: async () => {
+      if (!schoolId || !classId || !semesterId || !activeSemester?.academic_year_id) {
+        throw new Error('Please select class and semester');
+      }
+      if (!studentReports.length) {
+        throw new Error('No reports available to save');
+      }
+
+      const payload = studentReports.map((r) => ({
+        school_id: schoolId,
+        student_id: r.student.id,
+        academic_year_id: activeSemester.academic_year_id,
+        semester_id: semesterId,
+        class_id: classId,
+        total_score: r.total,
+        average_score: r.average ?? 0,
+        overall_grade: r.overallGrade === '—' ? null : r.overallGrade,
+        position: r.position,
+        total_students: students.length,
+        subjects_count: r.results.length,
+        incomplete_subjects: r.results.filter((s) => s.remark === 'Incomplete').length,
+        attendance_present: r.attendance?.present ?? 0,
+        attendance_absent: r.attendance?.absent ?? 0,
+        attendance_total: r.attendance?.days_marked ?? 0,
+        conduct: r.conduct || null,
+        attitude: r.attitude || null,
+        interest: r.interest || null,
+        class_teacher_remarks: r.classTeacherRemarks || null,
+        headmaster_remarks: r.headmasterRemarks || null,
+        status: 'draft',
+      }));
+
+      const { error } = await supabase
+        .from('terminal_reports')
+        .upsert(payload, { onConflict: 'student_id, semester_id, class_id' });
+      if (error) throw error;
+      return payload.length;
+    },
+    onSuccess: (count) => {
+      toast(`Successfully saved positions and report remarks for ${count} students!`);
+      qc.invalidateQueries({ queryKey: ['batch_saved_reports'] });
+      qc.invalidateQueries({ queryKey: ['terminal_report'] });
+    },
+    onError: (err) => {
+      toast(friendlyError(err), 'error');
+    },
+  });
 
   return (
     <>
@@ -212,9 +289,18 @@ export default function BatchTerminalReportsPage() {
           subtitle={`Generate and print reports for all students in ${classLabel(selectedClass)} · ${semesterLabel(activeSemester)}`}
           actions={
             studentReports.length > 0 && (
-              <Button onClick={() => window.print()}>
-                🖨️ Print All ({studentReports.length} Reports)
-              </Button>
+              <>
+                <Button
+                  variant="secondary"
+                  onClick={() => saveAllMutation.mutate()}
+                  loading={saveAllMutation.isPending}
+                >
+                  💾 Save Positions to Database
+                </Button>
+                <Button onClick={() => window.print()}>
+                  🖨️ Print All ({studentReports.length} Reports)
+                </Button>
+              </>
             )
           }
         />
@@ -374,7 +460,10 @@ export default function BatchTerminalReportsPage() {
                     </div>
                     <div>
                       <div className="small muted">Class Position</div>
-                      <strong>{report.position ? `#${report.position}` : '—'}</strong>
+                      <strong style={{ fontSize: '1.05rem', color: report.position === 1 ? 'var(--green-800)' : 'var(--ink)' }}>
+                        {report.position ? formatPosition(report.position, students.length) : '—'}
+                        {report.position === 1 && ' 🏆'}
+                      </strong>
                     </div>
                   </div>
 

@@ -3,11 +3,12 @@ import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { useSchool } from '../../lib/auth';
-import { semesterLabel, unwrap, useClasses, usePlatformSettings, useSemesters } from '../../lib/queries';
+import { semesterLabel, unwrap, useClasses, useGradeBands, usePlatformSettings, useSemesters } from '../../lib/queries';
 import { classLabel, formatDate, formatDateTime, humanize, studentName } from '../../lib/format';
 import { friendlyError } from '../../lib/errors';
 import { useToast } from '../../lib/toast';
-import type { Student } from '../../lib/types';
+import { formatPosition, gradeFor } from '../../lib/grades';
+import type { Student, TerminalReport } from '../../lib/types';
 import {
   Alert, Badge, Button, Card, ConfirmDialog, EmptyState, ErrorBox, Modal, PageHeader, Select, Spinner, Textarea,
 } from '../../components/ui';
@@ -62,6 +63,20 @@ export default function StudentProfilePage() {
     enabled: !!sem,
     queryFn: () => unwrap<{ subject_id: string; subject_name: string; total: number; weight_total: number; percentage: number | null; grade: string | null; remark: string | null; scores_entered: number; assessments_count: number }[]>(
       supabase.rpc('student_semester_results', { p_student_id: studentId, p_semester_id: sem!.id })),
+  });
+  const gradeBands = useGradeBands(schoolId);
+  const terminalReport = useQuery({
+    queryKey: ['student_terminal_report_profile', studentId, sem?.id],
+    enabled: !!studentId && !!sem?.id,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('terminal_reports')
+        .select('*')
+        .eq('student_id', studentId!)
+        .eq('semester_id', sem!.id)
+        .maybeSingle();
+      return data as TerminalReport | null;
+    },
   });
 
   const register = useMutation({
@@ -146,18 +161,105 @@ export default function StudentProfilePage() {
       </div>
 
       <div style={{ height: 16 }} />
-      <Card title={`Academic results · ${semesterLabel(sem)}`} padded={false}>
-        {results.isLoading ? <Spinner /> : !results.data?.length ? <EmptyState title="No assessments recorded yet" /> : (
-          <div className="table-wrap"><table>
-            <thead><tr><th>Subject</th><th className="num">Total</th><th className="num">%</th><th>Grade</th><th>Remark</th><th>Progress</th></tr></thead>
-            <tbody>{results.data.map((r) => (
-              <tr key={r.subject_id}>
-                <td>{r.subject_name}</td><td className="num">{Number(r.total).toFixed(1)} / {Number(r.weight_total)}</td>
-                <td className="num">{r.percentage ?? '—'}</td><td><strong>{r.grade ?? '—'}</strong></td><td>{r.remark ?? ''}</td>
-                <td className="muted small">{r.scores_entered}/{r.assessments_count} assessments</td>
-              </tr>))}
-            </tbody>
-          </table></div>
+      <Card
+        title={`Academic results · ${semesterLabel(sem)}`}
+        padded={false}
+        actions={
+          <Link
+            className="btn btn-sm btn-secondary"
+            to={`/school/reports/terminal/${studentId}?semester=${sem?.id}&class=${s.current_class_id}`}
+          >
+            Terminal Report
+          </Link>
+        }
+      >
+        {results.isLoading ? (
+          <Spinner />
+        ) : !results.data?.length ? (
+          <EmptyState title="No assessments recorded yet" />
+        ) : (
+          <>
+            {/* Overall summary bar */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(4, 1fr)',
+                gap: 12,
+                padding: '12px 16px',
+                background: 'var(--green-50)',
+                borderBottom: '1px solid var(--line)',
+                textAlign: 'center',
+              }}
+            >
+              <div>
+                <div className="small muted">Total Score</div>
+                <strong>
+                  {Math.round(results.data.reduce((acc, r) => acc + Number(r.total || 0), 0) * 100) / 100}
+                </strong>
+              </div>
+              <div>
+                <div className="small muted">Term Average</div>
+                <strong>
+                  {results.data.filter((r) => r.percentage !== null).length > 0
+                    ? `${(
+                        results.data.reduce((acc, r) => acc + Number(r.total || 0), 0) /
+                        results.data.filter((r) => r.percentage !== null).length
+                      ).toFixed(1)}%`
+                    : '—'}
+                </strong>
+              </div>
+              <div>
+                <div className="small muted">Overall Grade</div>
+                <strong style={{ color: 'var(--green-800)' }}>
+                  {terminalReport.data?.overall_grade ||
+                    gradeFor(
+                      results.data.filter((r) => r.percentage !== null).length > 0
+                        ? results.data.reduce((acc, r) => acc + Number(r.total || 0), 0) /
+                            results.data.filter((r) => r.percentage !== null).length
+                        : null,
+                      gradeBands.data?.bands ?? []
+                    )?.grade ||
+                    '—'}
+                </strong>
+              </div>
+              <div>
+                <div className="small muted">Class Position</div>
+                <strong style={{ color: terminalReport.data?.position === 1 ? 'var(--green-800)' : 'var(--ink)' }}>
+                  {terminalReport.data?.position
+                    ? formatPosition(terminalReport.data.position, terminalReport.data.total_students)
+                    : '—'}
+                  {terminalReport.data?.position === 1 && ' 🏆'}
+                </strong>
+              </div>
+            </div>
+
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Subject</th>
+                    <th className="num">Total</th>
+                    <th className="num">%</th>
+                    <th>Grade</th>
+                    <th>Remark</th>
+                    <th>Progress</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {results.data.map((r) => (
+                    <tr key={r.subject_id}>
+                      <td>{r.subject_name}</td>
+                      <td className="num">{Number(r.total).toFixed(1)} / {Number(r.weight_total)}</td>
+                      <td className="num">{r.percentage ?? '—'}</td>
+                      <td><strong>{r.grade ?? '—'}</strong></td>
+                      <td>{r.remark ?? ''}</td>
+                      <td className="muted small">{r.scores_entered}/{r.assessments_count} assessments</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </Card>
 

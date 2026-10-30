@@ -1,12 +1,14 @@
 import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../lib/auth';
-import { semesterLabel, unwrap, useClasses, useGradeBands, useSemesters, useSubjects } from '../../lib/queries';
+import { semesterLabel, unwrap, useClasses, useGradeBands, useGradingConfig, useSemesters, useSubjects } from '../../lib/queries';
 import { classLabel } from '../../lib/format';
-import { computePositions, gradeFor } from '../../lib/grades';
+import { computePositions, formatPosition, gradeFor } from '../../lib/grades';
 import { downloadCsv } from '../../lib/csv';
+import { useToast } from '../../lib/toast';
+import { friendlyError } from '../../lib/errors';
 import type { ConsolidatedStudentRow, Examination } from '../../lib/types';
 import {
   Badge,
@@ -35,18 +37,22 @@ interface StudentGridRow extends ConsolidatedStudentRow {
 export default function ConsolidatedResultsPage({ defaultRole: _defaultRole }: { defaultRole?: 'headmaster' | 'teacher' } = {}) {
   const { active } = useAuth();
   const schoolId = active?.school_id;
+  const qc = useQueryClient();
+  const toast = useToast();
   const [params, setParams] = useSearchParams();
 
   const semesters = useSemesters(schoolId);
   const classes = useClasses(schoolId);
   const allSubjects = useSubjects(schoolId);
   const gradeBands = useGradeBands(schoolId);
+  const gradingConfig = useGradingConfig(schoolId);
 
   const semesterId = params.get('semester') || semesters.data?.find((s) => s.is_current)?.id || '';
   const classId = params.get('class') || '';
   const examId = params.get('exam') || '';
   const [searchTerm, setSearchTerm] = useState('');
-  const [sortBy, setSortBy] = useState<'name' | 'position' | 'average'>('position');
+  const [rankCriteria, setRankCriteria] = useState<'total' | 'average'>('total');
+  const [sortBy, setSortBy] = useState<'position' | 'total' | 'average' | 'name'>('position');
 
   const activeSemester = semesters.data?.find((s) => s.id === semesterId);
 
@@ -226,13 +232,18 @@ export default function ConsolidatedResultsPage({ defaultRole: _defaultRole }: {
       };
     });
 
-    // Compute positions based on overall average
-    const rankable = computed.map((c) => ({
-      ...c,
-      id: c.student_id,
-      score: c.overall_average ?? 0,
-    }));
-    const ranked = computePositions(rankable, 'dense');
+    // Compute positions based on overall performance (1st position goes to the person with highest score)
+    const rankable = computed.map((c) => {
+      const hasAnyScore = c.subject_results.some((s) => s.percentage !== null) || c.overall_total > 0;
+      const scoreValue = rankCriteria === 'total' ? c.overall_total : c.overall_average;
+      return {
+        ...c,
+        id: c.student_id,
+        score: hasAnyScore ? scoreValue : null,
+      };
+    });
+    const tiePolicy = gradingConfig.data?.tie_ranking_policy || 'dense';
+    const ranked = computePositions(rankable, tiePolicy);
 
     return computed.map((c) => {
       const match = ranked.find((r) => r.id === c.student_id);
@@ -241,7 +252,7 @@ export default function ConsolidatedResultsPage({ defaultRole: _defaultRole }: {
         position: match?.position ?? null,
       };
     });
-  }, [classStudents.data, subjectScores.data, subjectsList, gradeBands.data]);
+  }, [classStudents.data, subjectScores.data, subjectsList, gradeBands.data, rankCriteria, gradingConfig.data]);
 
   const sortedRows = useMemo(() => {
     let list = [...gridRows];
@@ -256,6 +267,8 @@ export default function ConsolidatedResultsPage({ defaultRole: _defaultRole }: {
 
     if (sortBy === 'name') {
       list.sort((a, b) => a.student_name.localeCompare(b.student_name));
+    } else if (sortBy === 'total') {
+      list.sort((a, b) => (b.overall_total ?? 0) - (a.overall_total ?? 0));
     } else if (sortBy === 'average') {
       list.sort((a, b) => (b.overall_average ?? 0) - (a.overall_average ?? 0));
     } else {
@@ -267,11 +280,53 @@ export default function ConsolidatedResultsPage({ defaultRole: _defaultRole }: {
   const selectedClass = classes.data?.find((c) => c.id === classId);
   const selectedExam = examinations.data?.find((e) => e.id === examId);
 
+  const savePositionsMutation = useMutation({
+    mutationFn: async () => {
+      if (!schoolId || !classId || !semesterId || !activeSemester?.academic_year_id) {
+        throw new Error('Please select class and semester');
+      }
+      if (!sortedRows.length) {
+        throw new Error('No student results available to save');
+      }
+
+      const payload = sortedRows.map((r) => ({
+        school_id: schoolId,
+        student_id: r.student_id,
+        academic_year_id: activeSemester.academic_year_id,
+        semester_id: semesterId,
+        class_id: classId,
+        examination_id: examId || null,
+        total_score: r.overall_total,
+        average_score: r.overall_average ?? 0,
+        overall_grade: r.overall_grade,
+        position: r.position,
+        total_students: sortedRows.length,
+        subjects_count: r.subject_results.length,
+        incomplete_subjects: r.subject_results.filter((s) => s.scores_entered < s.assessments_count).length,
+        status: 'draft',
+      }));
+
+      const { error } = await supabase
+        .from('terminal_reports')
+        .upsert(payload, { onConflict: 'student_id, semester_id, class_id' });
+      if (error) throw error;
+      return payload.length;
+    },
+    onSuccess: (count) => {
+      toast(`Saved positions for ${count} students to Terminal Reports!`);
+      qc.invalidateQueries({ queryKey: ['terminal_report'] });
+      qc.invalidateQueries({ queryKey: ['batch_saved_reports'] });
+    },
+    onError: (err) => {
+      toast(friendlyError(err), 'error');
+    },
+  });
+
   const exportConsolidatedCsv = () => {
     if (!selectedClass || !sortedRows.length) return;
     const data = sortedRows.map((r) => {
       const row: Record<string, unknown> = {
-        Position: r.position ?? '—',
+        Position: r.position ? formatPosition(r.position) : '—',
         'Admission No': r.admission_number,
         'Student Name': r.student_name,
       };
@@ -302,6 +357,15 @@ export default function ConsolidatedResultsPage({ defaultRole: _defaultRole }: {
         actions={
           sortedRows.length > 0 && (
             <>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => savePositionsMutation.mutate()}
+                loading={savePositionsMutation.isPending}
+                title="Save computed positions to Terminal Reports for all students"
+              >
+                💾 Save Positions to Reports
+              </Button>
               <Button size="sm" variant="secondary" onClick={() => window.print()}>
                 Print Class Sheet
               </Button>
@@ -397,12 +461,21 @@ export default function ConsolidatedResultsPage({ defaultRole: _defaultRole }: {
               placeholder="Search by student name or admission number"
             />
             <Select
+              label="Rank Basis"
+              value={rankCriteria}
+              onChange={(e) => setRankCriteria(e.target.value as 'total' | 'average')}
+            >
+              <option value="total">Overall Total Score (Highest Score = 1st)</option>
+              <option value="average">Overall Average % (Highest Average = 1st)</option>
+            </Select>
+            <Select
               label="Sort by"
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as any)}
             >
-              <option value="position">Position / Rank</option>
-              <option value="average">Highest Average</option>
+              <option value="position">Position / Rank (1st, 2nd, ...)</option>
+              <option value="total">Highest Total Score</option>
+              <option value="average">Highest Average %</option>
               <option value="name">Student Name (A-Z)</option>
             </Select>
           </div>
@@ -477,7 +550,16 @@ export default function ConsolidatedResultsPage({ defaultRole: _defaultRole }: {
                 {sortedRows.map((row) => (
                   <tr key={row.student_id}>
                     <td className="num">
-                      <strong>{row.position ? `#${row.position}` : '—'}</strong>
+                      {row.position ? (
+                        <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
+                          {row.position === 1 && <span title="1st Place (Highest Score in Class)">🥇</span>}
+                          {row.position === 2 && <span title="2nd Place">🥈</span>}
+                          {row.position === 3 && <span title="3rd Place">🥉</span>}
+                          <strong>{formatPosition(row.position)}</strong>
+                        </div>
+                      ) : (
+                        <span className="muted">—</span>
+                      )}
                     </td>
                     <td>
                       <div>
