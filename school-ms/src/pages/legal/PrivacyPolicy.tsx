@@ -41,105 +41,130 @@ export function PrivacyPolicyPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 24, fontSize: '0.94rem', lineHeight: 1.65 }}>
           <section>
             <h2 style={{ fontSize: '1.15rem', fontWeight: 650, margin: '0 0 8px', color: 'var(--ink)' }}>
-              1. Who We Are
+              1. Who We Are &amp; Legal Framework
             </h2>
             <p>
-              [APP NAME] (&ldquo;we,&rdquo; &ldquo;us,&rdquo; or &ldquo;our&rdquo;) is an educational management software platform operated by [COMPANY/OWNER NAME], located at [ADDRESS].
+              Acadex is an educational management SaaS platform operated by Acadex, located in Accra, Ghana.
             </p>
             <p>
-              Under the Ghana Data Protection Act, 2012 (Act 843), the school subscribing to our platform is the <strong>Data Controller</strong>. We act strictly as a <strong>Data Processor</strong> on behalf of and under the explicit direction of the school.
+              Under the Ghana Data Protection Act, 2012 (Act 843), the school subscribing to our platform is the <strong>Data Controller</strong>. Acadex acts strictly as the <strong>Data Processor</strong> providing the secure technical infrastructure to host the service.
             </p>
           </section>
 
           <section>
             <h2 style={{ fontSize: '1.15rem', fontWeight: 650, margin: '0 0 8px', color: 'var(--ink)' }}>
-              2. Data We Collect
+              2. Data Access &amp; Roles (No Platform Access by Acadex)
             </h2>
             <p>
-              We process only personal data necessary to provide school administration services:
+              <strong>Acadex does not have access to any staff data, student records, or guardian emergency contacts.</strong> We do not inspect, browse, extract, or monitor your school&rsquo;s internal educational or contact records.
             </p>
             <ul style={{ paddingLeft: 20, margin: '8px 0' }}>
-              <li><strong>Staff Data:</strong> Full name, official email address, school role (headmaster or teacher), phone number, and system login activity (timestamps, IP address).</li>
-              <li><strong>Student Records:</strong> Student full name, date of birth, gender, admission number, enrollment history, class assignments, continuous assessments, terminal examination scores, and daily attendance logs.</li>
-              <li><strong>Guardian &amp; Emergency Contacts:</strong> Parent or guardian full name, relationship to student, phone number, email address, and home address.</li>
+              <li>
+                <strong>Exclusive Headmaster Access:</strong> The Headmaster of each school possesses sole administrative access and control over their school&rsquo;s tenant. The Headmaster creates teacher accounts, registers students, manages classes, records guardian contact information, and oversees academic reports.
+              </li>
+              <li>
+                <strong>Authorized Teacher Access:</strong> Teachers have restricted access solely to the specific classes and subjects assigned to them by their Headmaster.
+              </li>
+              <li>
+                <strong>No Direct Access for Students or Parents:</strong> Students and parents/guardians have no login accounts or direct access to the platform.
+              </li>
             </ul>
           </section>
 
           <section>
             <h2 style={{ fontSize: '1.15rem', fontWeight: 650, margin: '0 0 8px', color: 'var(--ink)' }}>
-              3. Why We Use It
+              3. Data Stored on the Platform
             </h2>
             <p>
-              We process personal data solely to deliver, maintain, and support [APP NAME] for your school. This includes recording grades, compiling terminal report cards, tracking attendance, and facilitating authorized school-to-parent communications (such as bulk SMS notifications and report sharing).
+              The platform securely stores only the information entered and managed exclusively by the Headmaster and authorized teachers:
             </p>
-            <p>
-              We never use school, teacher, student, or guardian data for advertising, profiling, or commercial monetization.
+            <ul style={{ paddingLeft: 20, margin: '8px 0' }}>
+              <li>
+                <strong>Staff Data:</strong> Teacher full names, email addresses, phone numbers, and subject/class assignments as configured by the Headmaster.
+              </li>
+              <li>
+                <strong>Student Records:</strong> Student full names, admission numbers, gender, class placement, continuous assessment marks, examination scores, and daily attendance records entered by school educators.
+              </li>
+              <li>
+                <strong>Guardian Emergency Contacts:</strong> Parent or guardian names, emergency phone numbers, and email addresses entered by the school strictly for attendance notifications, urgent announcements, and terminal report card sharing.
+              </li>
+            </ul>
+            <p style={{ marginTop: 8 }}>
+              Acadex never collects or stores student/parent payment card numbers or personal banking details.
             </p>
           </section>
 
           <section>
             <h2 style={{ fontSize: '1.15rem', fontWeight: 650, margin: '0 0 8px', color: 'var(--ink)' }}>
-              4. Parental Consent
+              4. Why the Data Is Processed
             </h2>
             <p>
-              As the Data Controller, the subscribing school is legally responsible for securing valid consent from parents or legal guardians at student enrollment in compliance with the Ghana Data Protection Act, 2012 (Act 843) prior to recording student or guardian details into [APP NAME].
+              The data stored within Acadex is utilized solely by the school to execute essential school administration functions (attendance taking, continuous assessment and examination recording, automatic terminal report card generation, and authorized school-to-parent communication).
+            </p>
+            <p>
+              Acadex never sells, rents, monetizes, profiles, or uses any school, teacher, student, or guardian data for advertising or any commercial purpose.
             </p>
           </section>
 
           <section>
             <h2 style={{ fontSize: '1.15rem', fontWeight: 650, margin: '0 0 8px', color: 'var(--ink)' }}>
-              5. Data Sharing
+              5. Parental Consent &amp; School Responsibilities
             </h2>
             <p>
-              We never sell, rent, or trade personal data. Data is shared exclusively with verified cloud hosting and infrastructure sub-processors strictly required to run the service (such as encrypted cloud database hosting and licensed telecom SMS gateways).
+              Because the School is the Data Controller with exclusive access to student and guardian data, the School warrants that it has the lawful authority and parental/guardian consent required under the Ghana Data Protection Act, 2012 (Act 843) to enter student details and guardian emergency contacts into the system.
             </p>
           </section>
 
           <section>
             <h2 style={{ fontSize: '1.15rem', fontWeight: 650, margin: '0 0 8px', color: 'var(--ink)' }}>
-              6. Retention and Deletion
+              6. Data Sharing &amp; Sub-Processors
             </h2>
             <p>
-              School data is retained only while the school&rsquo;s account is active and in good standing.
-            </p>
-            <p>
-              Upon subscription conclusion or written request from the headmaster, all student and school data will be exported to the school or permanently erased from active production databases within thirty (30) days.
+              Acadex does not share school data with any third parties. Data is stored strictly on secure cloud database servers with tenant-level encryption. SMS and WhatsApp notifications are triggered strictly upon the direct instruction and action of the Headmaster or class teacher via licensed telecom infrastructure gateways.
             </p>
           </section>
 
           <section>
             <h2 style={{ fontSize: '1.15rem', fontWeight: 650, margin: '0 0 8px', color: 'var(--ink)' }}>
-              7. Security Safeguards
+              7. Retention and Deletion
             </h2>
             <p>
-              We enforce multi-layered security controls including TLS 1.3 encryption in transit, AES-256 encryption at rest, PostgreSQL Row Level Security (RLS) isolating each school tenant, and one-way bcrypt password hashing. Access is strictly limited to authorized school staff.
+              The School retains 100% ownership of its data at all times. The Headmaster may export complete student, grade, and attendance records whenever needed.
+            </p>
+            <p>
+              Upon school account termination or written request from the Headmaster, all school records will be permanently erased from active production databases within thirty (30) days.
             </p>
           </section>
 
           <section>
             <h2 style={{ fontSize: '1.15rem', fontWeight: 650, margin: '0 0 8px', color: 'var(--ink)' }}>
-              8. Data Subject Rights
+              8. Security Safeguards
             </h2>
             <p>
-              Under Act 843, data subjects have the right to access, rectify, or delete their personal records. Because the school is the Data Controller, parents and staff should direct requests to their school headmaster. Inquiries regarding technical processor obligations can be directed to [SUPPORT EMAIL].
+              We implement industry-standard technical safeguards to ensure zero unauthorized access:
+            </p>
+            <ul style={{ paddingLeft: 20, margin: '8px 0' }}>
+              <li><strong>Tenant Isolation:</strong> PostgreSQL Row Level Security (RLS) ensures that data belonging to one school cannot be accessed or viewed by any other school or unauthorized party.</li>
+              <li><strong>Encryption:</strong> All data is encrypted in transit using TLS 1.3 / HTTPS and encrypted at rest with AES-256.</li>
+              <li><strong>Credential Protection:</strong> Passwords are protected using one-way cryptographic hashing (bcrypt). Acadex staff cannot view user passwords.</li>
+            </ul>
+          </section>
+
+          <section>
+            <h2 style={{ fontSize: '1.15rem', fontWeight: 650, margin: '0 0 8px', color: 'var(--ink)' }}>
+              9. Data Subject Rights under Act 843
+            </h2>
+            <p>
+              Under Act 843, data subjects have the right to inspect, correct, or request deletion of their personal records. Because only the school&rsquo;s Headmaster has access to student and guardian data, all requests should be directed to the school&rsquo;s administration. Inquiries regarding technical processor obligations may be sent to <a href="mailto:support@acadex.com" style={{ color: 'var(--green-700)' }}>support@acadex.com</a>.
             </p>
           </section>
 
           <section>
             <h2 style={{ fontSize: '1.15rem', fontWeight: 650, margin: '0 0 8px', color: 'var(--ink)' }}>
-              9. Children&rsquo;s Data
+              10. Children&rsquo;s Data
             </h2>
             <p>
-              Student information is stored only as entered by authorized school staff. Students and minors have no direct login access to the software.
-            </p>
-          </section>
-
-          <section>
-            <h2 style={{ fontSize: '1.15rem', fontWeight: 650, margin: '0 0 8px', color: 'var(--ink)' }}>
-              10. Data Protection Commission Registration
-            </h2>
-            <p>
-              Data Protection Commission (DPC) Registration: <strong>[REGISTRATION NUMBER or &ldquo;in progress&rdquo;]</strong>.
+              Because pupil information is processed, heightened protections apply: pupils have no direct system access, no behavioral profiling or tracking takes place, and records are accessible exclusively by authorized school personnel.
             </p>
           </section>
 
@@ -148,14 +173,14 @@ export function PrivacyPolicyPage() {
               11. Changes and Contact Details
             </h2>
             <p>
-              We may update this policy periodically with advance notice to headmasters. For privacy inquiries, please contact:
+              Any material revisions to this policy will be communicated directly to Headmasters in advance. For questions or support, contact:
             </p>
             <div style={{ background: 'var(--bg)', padding: 14, borderRadius: 8, fontSize: '0.88rem' }}>
-              <p style={{ margin: '3px 0' }}><strong>Entity:</strong> [COMPANY/OWNER NAME]</p>
-              <p style={{ margin: '3px 0' }}><strong>Platform:</strong> [APP NAME]</p>
-              <p style={{ margin: '3px 0' }}><strong>Email:</strong> <a href="mailto:[SUPPORT EMAIL]">[SUPPORT EMAIL]</a></p>
-              <p style={{ margin: '3px 0' }}><strong>Address:</strong> [ADDRESS]</p>
-              <p style={{ margin: '3px 0' }}><strong>Governing Law:</strong> Republic of Ghana</p>
+              <p style={{ margin: '3px 0' }}><strong>Platform:</strong> Acadex</p>
+              <p style={{ margin: '3px 0' }}><strong>Operator:</strong> Acadex</p>
+              <p style={{ margin: '3px 0' }}><strong>Location:</strong> Accra, Ghana</p>
+              <p style={{ margin: '3px 0' }}><strong>Support Email:</strong> <a href="mailto:support@acadex.com">support@acadex.com</a></p>
+              <p style={{ margin: '3px 0' }}><strong>Governing Law:</strong> Republic of Ghana (Data Protection Act, 2012 - Act 843)</p>
             </div>
           </section>
         </div>

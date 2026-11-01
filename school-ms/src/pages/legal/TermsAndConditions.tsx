@@ -44,10 +44,10 @@ export function TermsAndConditionsPage() {
               1. Acceptance of Terms
             </h2>
             <p>
-              These Terms &amp; Conditions (&ldquo;Terms&rdquo;) form a legally binding agreement between [COMPANY/OWNER NAME] (&ldquo;we,&rdquo; &ldquo;us,&rdquo; or &ldquo;our&rdquo;) and the subscribing educational institution (&ldquo;School,&rdquo; &ldquo;you,&rdquo; or &ldquo;your&rdquo;).
+              These Terms &amp; Conditions (&ldquo;Terms&rdquo;) form a legally binding agreement between Acadex  and the subscribing educational institution.
             </p>
             <p>
-              By signing in, creating a school account, or using [APP NAME], the headmaster or authorized school representative confirms acceptance of these Terms and our Privacy Policy.
+              By signing in, creating a school account, or using Acadex, the headmaster or authorized school representative confirms acceptance of these Terms and our Privacy Policy.
             </p>
           </section>
 
@@ -80,7 +80,7 @@ export function TermsAndConditionsPage() {
               4. Acceptable Use
             </h2>
             <p>
-              You agree to use [APP NAME] strictly for lawful school management purposes. You agree not to attempt unauthorized access to other schools&rsquo; records, reverse-engineer the system, introduce malicious scripts, or misuse bulk messaging features.
+              You agree to use Acadex strictly for lawful school management purposes. You agree not to attempt unauthorized access to other schools&rsquo; records, reverse-engineer the system, introduce malicious scripts, or misuse bulk messaging features.
             </p>
           </section>
 
@@ -89,7 +89,7 @@ export function TermsAndConditionsPage() {
               5. Data Ownership
             </h2>
             <p>
-              The School retains 100% ownership of all student records, examination marks, and attendance data entered into the platform. We use this data solely to provide the SaaS service to you.
+              The School retains 100% ownership of all student records, examination marks, and attendance data entered into the platform. Acadex use this data solely to provide the SaaS service to you.
             </p>
           </section>
 
@@ -98,7 +98,7 @@ export function TermsAndConditionsPage() {
               6. Availability and Backups
             </h2>
             <p>
-              We provide regular encrypted database backups and work to maximize system availability. However, the service is provided &ldquo;as is&rdquo; without warranties of continuous, uninterrupted operation.
+              Acadex provide regular encrypted database backups and work to maximize system availability. However, the service is provided &ldquo;as is&rdquo; without warranties of continuous, uninterrupted operation.
             </p>
           </section>
 
@@ -107,7 +107,7 @@ export function TermsAndConditionsPage() {
               7. Fees and Payment
             </h2>
             <p>
-              [PLACEHOLDER: Subscription pricing per student per semester, billing dates, accepted payment methods including Mobile Money and Bank Transfer, and account suspension policies for overdue balances.]
+              Subscription pricing per student per semester, billing dates, accepted payment methods including Mobile Money and Bank Transfer, and account suspension policies for overdue balances.
             </p>
           </section>
 
@@ -125,7 +125,7 @@ export function TermsAndConditionsPage() {
               9. Limitation of Liability
             </h2>
             <p>
-              To the fullest extent permitted by law, [COMPANY/OWNER NAME] shall not be liable for indirect, incidental, or consequential damages. Total liability is capped at the subscription fees paid by the School in the preceding twelve (12) months.
+              To the fullest extent permitted by law, Acadex shall not be liable for indirect, incidental, or consequential damages. Total liability is capped at the subscription fees paid by the School in the preceding twelve (12) months.
             </p>
           </section>
 
