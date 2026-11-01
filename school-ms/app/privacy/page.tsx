@@ -21,16 +21,22 @@ export default function PrivacyPolicyPage() {
       </section>
 
       <section className="space-y-4">
-        <h2 className="text-xl font-semibold text-gray-900">2. Data Access &amp; Roles (No Platform Access by Acadex)</h2>
+        <h2 className="text-xl font-semibold text-gray-900">2. What Acadex Does NOT Collect or Access</h2>
         <p>
-          <strong>Acadex does not have access to any staff data, student records, or guardian emergency contacts.</strong> We do not inspect, browse, extract, or monitor your school&rsquo;s internal educational records or personal contacts.
+          <strong>Acadex does NOT collect, inspect, browse, or access any staff data, student records, or guardian emergency contacts.</strong>
+        </p>
+        <p>
+          All student information (names, grades, assessments, attendance records), staff accounts (teacher names, emails, phone numbers), and parent/guardian emergency contact details are entered, accessed, and managed <strong>strictly and exclusively by the school&rsquo;s Headmaster</strong> (and teachers assigned by the Headmaster to specific classes).
         </p>
         <ul className="list-disc pl-5 space-y-2">
           <li>
-            <strong>Exclusive Headmaster Access:</strong> The Headmaster of each school possesses sole administrative access and authority over their school&rsquo;s tenant. The Headmaster creates teacher accounts, registers students, manages classes, records guardian emergency contact details, and compiles academic reports.
+            <strong>Exclusive Headmaster Access:</strong> The Headmaster has sole administrative control over their school&rsquo;s records, student enrollments, guardian emergency contacts, and staff assignments.
           </li>
           <li>
-            <strong>Authorized Teacher Access:</strong> Teachers have restricted access solely to the specific classes and subjects assigned to them by their Headmaster.
+            <strong>Restricted Teacher Access:</strong> Teachers can only view the specific classes and subjects assigned to them by the Headmaster.
+          </li>
+          <li>
+            <strong>Zero Platform Access:</strong> Acadex personnel have no access to view, read, or process student records, staff personal data, or guardian emergency numbers.
           </li>
           <li>
             <strong>No Direct Access for Students or Parents:</strong> Students and parents/guardians have no login accounts or direct access to the platform.
@@ -39,33 +45,30 @@ export default function PrivacyPolicyPage() {
       </section>
 
       <section className="space-y-4">
-        <h2 className="text-xl font-semibold text-gray-900">3. Data Stored on the Platform</h2>
+        <h2 className="text-xl font-semibold text-gray-900">3. Information Acadex Collects (Account Administration Only)</h2>
         <p>
-          The platform securely stores only the information entered and managed exclusively by the Headmaster and authorized teachers:
+          Acadex only collects basic institutional account information required to establish and maintain the school&rsquo;s software subscription:
         </p>
         <ul className="list-disc pl-5 space-y-2">
           <li>
-            <strong>Staff Data:</strong> Teacher full names, email addresses, phone numbers, and subject/class assignments as configured by the Headmaster.
+            <strong>School Profile:</strong> School name, unique school code, region, and official school administrative email.
           </li>
           <li>
-            <strong>Student Records:</strong> Student full names, admission numbers, gender, class placement, continuous assessment marks, examination scores, and daily attendance records entered by school educators.
-          </li>
-          <li>
-            <strong>Guardian Emergency Contacts:</strong> Parent or guardian names, emergency phone numbers, and email addresses entered by the school strictly for attendance notifications, urgent announcements, and terminal report card sharing.
+            <strong>Headmaster Login Credentials:</strong> Headmaster full name, email address, and account password (stored cryptographically hashed with bcrypt).
           </li>
         </ul>
         <p>
-          Acadex never collects or stores student/parent payment card numbers or personal banking details.
+          Acadex never collects student personal records, guardian contact numbers, or student/parent payment card numbers.
         </p>
       </section>
 
       <section className="space-y-4">
-        <h2 className="text-xl font-semibold text-gray-900">4. Why the Data Is Processed</h2>
+        <h2 className="text-xl font-semibold text-gray-900">4. Why School Data Is Stored</h2>
         <p>
-          The data stored within Acadex is utilized solely by the school to execute essential school administration functions (attendance taking, continuous assessment and examination recording, automatic terminal report card generation, and authorized school-to-parent communication).
+          The data entered by the Headmaster and teachers is stored strictly to enable the school to execute its daily academic functions (taking attendance, recording continuous assessments, generating terminal report cards, and sending school-initiated parent notifications).
         </p>
         <p>
-          Acadex never sells, rents, monetizes, profiles, or uses any school, teacher, student, or guardian data for advertising or any commercial purpose.
+          Acadex never sells, rents, monetizes, profiles, or uses any school data for advertising or any commercial purpose.
         </p>
       </section>
 
