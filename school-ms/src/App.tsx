@@ -50,6 +50,10 @@ const WhatsAppSharePage = lazy(() => import('./pages/communication/WhatsAppShare
 const MessageHistoryPage = lazy(() => import('./pages/communication/MessageHistory'));
 const CommunicationSettingsPage = lazy(() => import('./pages/communication/CommunicationSettings'));
 
+// legal
+const PrivacyPolicyPage = lazy(() => import('./pages/legal/PrivacyPolicy'));
+const TermsAndConditionsPage = lazy(() => import('./pages/legal/TermsAndConditions'));
+
 export function App() {
   return (
     <Suspense fallback={<div className="center-page"><Spinner /></div>}>
@@ -57,6 +61,8 @@ export function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/set-password" element={<SetPasswordPage />} />
+        <Route path="/privacy" element={<PrivacyPolicyPage />} />
+        <Route path="/terms" element={<TermsAndConditionsPage />} />
 
         <Route element={<RequireAuth><Layout /></RequireAuth>}>
           <Route index element={<RoleHome />} />

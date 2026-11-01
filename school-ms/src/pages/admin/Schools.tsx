@@ -70,6 +70,7 @@ function CreateSchoolModal({ onClose, onCreated }: { onClose: () => void; onCrea
   const toast = useToast();
   const [v, setV] = useState({ name: '', code: '', region: '', email: '', phone: '', address: '', status: 'active' as const });
   const [hm, setHm] = useState({ full_name: '', email: '', password: '' });
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [codeTouched, setCodeTouched] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [createdInfo, setCreatedInfo] = useState<{ schoolId: string; schoolName: string; email: string; password: string; name: string } | null>(null);
@@ -86,6 +87,10 @@ function CreateSchoolModal({ onClose, onCreated }: { onClose: () => void; onCrea
 
   const m = useMutation({
     mutationFn: async () => {
+      if (!agreedToTerms) {
+        throw new Error('You must agree to the Terms & Conditions and Privacy Policy to create a school.');
+      }
+
       const parsed = schoolSchema.safeParse(v);
       if (!parsed.success) { setErrors(fieldErrors(parsed.error)); throw new Error('Please fix the highlighted school fields.'); }
       
@@ -93,10 +98,32 @@ function CreateSchoolModal({ onClose, onCreated }: { onClose: () => void; onCrea
       if (!hm.email.trim() || !hm.email.includes('@')) throw new Error('Please enter a valid Headmaster email.');
       if (!hm.password || hm.password.length < 8) throw new Error('Headmaster password must be at least 8 characters.');
 
-      // 1. Create school
-      const { data, error } = await supabase.from('schools').insert(parsed.data).select('id, name').single();
-      if (error) throw error;
-      const schoolId = data.id as string;
+      const acceptedTermsAt = new Date().toISOString();
+      const termsVersion = 'v1.0';
+
+      // 1. Create school (with acceptedTermsAt and termsVersion, gracefully falling back if DB column not migrated yet)
+      let schoolId: string;
+      let schoolName: string;
+      const schoolPayload = {
+        ...parsed.data,
+        accepted_terms_at: acceptedTermsAt,
+        terms_version: termsVersion,
+      };
+
+      const { data, error } = await supabase.from('schools').insert(schoolPayload).select('id, name').single();
+      if (error) {
+        if (error.message?.includes('accepted_terms_at') || error.message?.includes('column') || error.code === '42703') {
+          const fallback = await supabase.from('schools').insert(parsed.data).select('id, name').single();
+          if (fallback.error) throw fallback.error;
+          schoolId = fallback.data.id as string;
+          schoolName = fallback.data.name;
+        } else {
+          throw error;
+        }
+      } else {
+        schoolId = data.id as string;
+        schoolName = data.name;
+      }
 
       // 2. Create headmaster account with password
       await invokeInvite({
@@ -107,7 +134,7 @@ function CreateSchoolModal({ onClose, onCreated }: { onClose: () => void; onCrea
         role: 'headmaster',
       });
 
-      return { schoolId, schoolName: data.name };
+      return { schoolId, schoolName };
     },
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['platform_schools'] });
@@ -149,7 +176,7 @@ function CreateSchoolModal({ onClose, onCreated }: { onClose: () => void; onCrea
 
   return (
     <Modal open title="New School & Headmaster" onClose={onClose}
-      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button onClick={() => m.mutate()} loading={m.isPending}>Create School & Headmaster</Button></>}>
+      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button onClick={() => m.mutate()} loading={m.isPending} disabled={!agreedToTerms || m.isPending}>Create School & Headmaster</Button></>}>
       <form onSubmit={(e) => { e.preventDefault(); m.mutate(); }}>
         {m.error && <Alert tone="error">{friendlyError(m.error)}</Alert>}
         
@@ -185,6 +212,40 @@ function CreateSchoolModal({ onClose, onCreated }: { onClose: () => void; onCrea
         <p className="muted small" style={{ marginTop: 6 }}>
           The headmaster can log in immediately with this email and password to set up classes, subjects, and teachers.
         </p>
+
+        <div style={{ marginTop: 16, padding: '12px 14px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', margin: 0 }}>
+            <input
+              type="checkbox"
+              id="agree-terms-checkbox"
+              required
+              checked={agreedToTerms}
+              onChange={(e) => setAgreedToTerms(e.target.checked)}
+              style={{ marginTop: 3, width: 16, height: 16, cursor: 'pointer', accentColor: '#0f5132' }}
+            />
+            <span style={{ fontSize: '0.88rem', color: '#334155', lineHeight: 1.4 }}>
+              I agree to the{' '}
+              <a
+                href="/terms"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: '#0f5132', textDecoration: 'underline', fontWeight: 600 }}
+              >
+                Terms &amp; Conditions
+              </a>{' '}
+              and{' '}
+              <a
+                href="/privacy"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: '#0f5132', textDecoration: 'underline', fontWeight: 600 }}
+              >
+                Privacy Policy
+              </a>
+              .
+            </span>
+          </label>
+        </div>
       </form>
     </Modal>
   );

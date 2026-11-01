@@ -5,6 +5,8 @@ import { useAuth } from '../../lib/auth';
 import { Button, Input, Alert } from '../../components/ui';
 import { emailSchema } from '../../lib/validation';
 
+import { AuthFooter } from '../../components/auth-footer';
+
 /** Only same-site relative paths are allowed after login (prevents open redirects). */
 export function safeRedirect(next: string | null): string {
   if (!next || !next.startsWith('/') || next.startsWith('//') || next.includes('\\') || /[\u0000-\u001f]/.test(next)) return '/';
@@ -57,6 +59,7 @@ export function LoginPage() {
         <p className="muted small" style={{ marginTop: 16, textAlign: 'center' }}>
           Accounts are created by invitation from your headmaster or the platform administrator.
         </p>
+        <AuthFooter />
       </form>
     </div>
   );
