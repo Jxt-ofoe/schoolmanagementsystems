@@ -55,13 +55,20 @@ export default function CommunicationSettingsPage() {
     queryKey: ['communication_settings', schoolId],
     enabled: !!schoolId,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('communication_settings')
-        .select('*')
-        .eq('school_id', schoolId!)
-        .maybeSingle();
-      if (error) throw error;
-      return data as CommunicationSettings | null;
+      try {
+        const { data, error } = await supabase
+          .from('communication_settings')
+          .select('*')
+          .eq('school_id', schoolId!)
+          .maybeSingle();
+        if (error) {
+          console.warn('communication_settings query warning:', error.message);
+          return null;
+        }
+        return data as CommunicationSettings | null;
+      } catch {
+        return null;
+      }
     },
   });
 
@@ -70,14 +77,21 @@ export default function CommunicationSettingsPage() {
     queryKey: ['message_templates', schoolId],
     enabled: !!schoolId,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('message_templates')
-        .select('*')
-        .eq('school_id', schoolId!)
-        .order('category')
-        .order('name');
-      if (error) throw error;
-      return (data ?? []) as MessageTemplate[];
+      try {
+        const { data, error } = await supabase
+          .from('message_templates')
+          .select('*')
+          .eq('school_id', schoolId!)
+          .order('category')
+          .order('name');
+        if (error) {
+          console.warn('message_templates query warning:', error.message);
+          return [] as MessageTemplate[];
+        }
+        return (data ?? []) as MessageTemplate[];
+      } catch {
+        return [] as MessageTemplate[];
+      }
     },
   });
 

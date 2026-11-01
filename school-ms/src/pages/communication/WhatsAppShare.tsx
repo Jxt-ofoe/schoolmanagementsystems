@@ -100,13 +100,21 @@ export default function WhatsAppSharePage() {
     queryKey: ['whatsapp_report_shares', classId, semesterId],
     enabled: !!classId && !!semesterId,
     queryFn: async () => {
-      const { data } = await supabase
-        .from('whatsapp_report_shares')
-        .select('*')
-        .eq('school_id', schoolId!)
-        .eq('class_id', classId)
-        .eq('semester_id', semesterId);
-      return (data ?? []) as WhatsAppReportShare[];
+      try {
+        const { data, error } = await supabase
+          .from('whatsapp_report_shares')
+          .select('*')
+          .eq('school_id', schoolId!)
+          .eq('class_id', classId)
+          .eq('semester_id', semesterId);
+        if (error) {
+          console.warn('whatsapp_report_shares query warning:', error.message);
+          return [] as WhatsAppReportShare[];
+        }
+        return (data ?? []) as WhatsAppReportShare[];
+      } catch {
+        return [] as WhatsAppReportShare[];
+      }
     },
   });
 
@@ -253,16 +261,20 @@ export default function WhatsAppSharePage() {
         customMessage: singleMessage,
       });
 
-      // 2. Record share status as whatsapp_opened
-      await upsertShareMutation.mutateAsync({
-        studentId: student.id,
-        terminalReportId: rep?.id,
-        parentName: student.guardian_name || 'Parent/Guardian',
-        parentPhone: singlePhone,
-        message: singleMessage,
-        status: 'whatsapp_opened',
-        notes: 'WhatsApp launched via single share modal',
-      });
+      // 2. Record share status as whatsapp_opened (non-fatal if DB migration is pending)
+      try {
+        await upsertShareMutation.mutateAsync({
+          studentId: student.id,
+          terminalReportId: rep?.id,
+          parentName: student.guardian_name || 'Parent/Guardian',
+          parentPhone: singlePhone,
+          message: singleMessage,
+          status: 'whatsapp_opened',
+          notes: 'WhatsApp launched via single share modal',
+        });
+      } catch (logErr) {
+        console.warn('Could not record WhatsApp share to database:', logErr);
+      }
 
       toast(`WhatsApp opened for ${studentFullName}'s parent! Attach the downloaded PDF and click Send.`);
     } catch (err: any) {
@@ -274,16 +286,20 @@ export default function WhatsAppSharePage() {
 
   // Mark single student as manually sent
   const handleMarkAsSent = async (student: Student) => {
-    const rep = reportsByStudentId.get(student.id);
-    await upsertShareMutation.mutateAsync({
-      studentId: student.id,
-      terminalReportId: rep?.id,
-      parentName: student.guardian_name || 'Parent/Guardian',
-      parentPhone: student.guardian_phone || 'N/A',
-      status: 'marked_as_sent',
-      notes: 'Manually marked as sent by teacher',
-    });
-    toast(`Marked as sent for ${student.first_name} ${student.last_name}!`);
+    try {
+      const rep = reportsByStudentId.get(student.id);
+      await upsertShareMutation.mutateAsync({
+        studentId: student.id,
+        terminalReportId: rep?.id,
+        parentName: student.guardian_name || 'Parent/Guardian',
+        parentPhone: student.guardian_phone || 'N/A',
+        status: 'marked_as_sent',
+        notes: 'Manually marked as sent by teacher',
+      });
+      toast(`Marked as sent for ${student.first_name} ${student.last_name}!`);
+    } catch (err: any) {
+      toast(friendlyError(err), 'error');
+    }
   };
 
   // BULK QUEUE WIZARD
@@ -327,15 +343,21 @@ export default function WhatsAppSharePage() {
       const { blob } = await generateReportCardPdf(reportCardRef.current, filename);
       downloadPdfBlob(blob, filename);
       setBulkQueueStatus((prev) => ({ ...prev, [currentQueueStudent.id]: 'pdf_generated' }));
-      const rep = reportsByStudentId.get(currentQueueStudent.id);
-      await upsertShareMutation.mutateAsync({
-        studentId: currentQueueStudent.id,
-        terminalReportId: rep?.id,
-        parentName: currentQueueStudent.guardian_name || 'Parent',
-        parentPhone: currentQueueStudent.guardian_phone || '',
-        message: bulkMessageText,
-        status: 'pdf_generated',
-      });
+      
+      // Attempt DB logging non-fatally
+      try {
+        const rep = reportsByStudentId.get(currentQueueStudent.id);
+        await upsertShareMutation.mutateAsync({
+          studentId: currentQueueStudent.id,
+          terminalReportId: rep?.id,
+          parentName: currentQueueStudent.guardian_name || 'Parent',
+          parentPhone: currentQueueStudent.guardian_phone || '',
+          message: bulkMessageText,
+          status: 'pdf_generated',
+        });
+      } catch (logErr) {
+        console.warn('Could not record pdf_generated status to database:', logErr);
+      }
       toast(`Downloaded ${filename} successfully!`);
     } catch (err: any) {
       toast(`Failed to generate PDF: ${err.message}`, 'error');
@@ -353,30 +375,41 @@ export default function WhatsAppSharePage() {
     }
     const link = createWhatsAppLink(cleanPhone, bulkMessageText);
     setBulkQueueStatus((prev) => ({ ...prev, [currentQueueStudent.id]: 'whatsapp_opened' }));
-    const rep = reportsByStudentId.get(currentQueueStudent.id);
-    await upsertShareMutation.mutateAsync({
-      studentId: currentQueueStudent.id,
-      terminalReportId: rep?.id,
-      parentName: currentQueueStudent.guardian_name || 'Parent',
-      parentPhone: phone || 'N/A',
-      message: bulkMessageText,
-      status: 'whatsapp_opened',
-    });
+    
+    // Attempt DB logging non-fatally
+    try {
+      const rep = reportsByStudentId.get(currentQueueStudent.id);
+      await upsertShareMutation.mutateAsync({
+        studentId: currentQueueStudent.id,
+        terminalReportId: rep?.id,
+        parentName: currentQueueStudent.guardian_name || 'Parent',
+        parentPhone: phone || 'N/A',
+        message: bulkMessageText,
+        status: 'whatsapp_opened',
+      });
+    } catch (logErr) {
+      console.warn('Could not record whatsapp_opened status to database:', logErr);
+    }
     window.open(link, '_blank', 'noopener,noreferrer');
   };
 
   // Bulk step: Mark as Sent & Advance
   const handleBulkMarkSentAndNext = async () => {
     if (!currentQueueStudent) return;
-    const rep = reportsByStudentId.get(currentQueueStudent.id);
-    await upsertShareMutation.mutateAsync({
-      studentId: currentQueueStudent.id,
-      terminalReportId: rep?.id,
-      parentName: currentQueueStudent.guardian_name || 'Parent',
-      parentPhone: currentQueueStudent.guardian_phone || '',
-      message: bulkMessageText,
-      status: 'marked_as_sent',
-    });
+    try {
+      const rep = reportsByStudentId.get(currentQueueStudent.id);
+      await upsertShareMutation.mutateAsync({
+        studentId: currentQueueStudent.id,
+        terminalReportId: rep?.id,
+        parentName: currentQueueStudent.guardian_name || 'Parent',
+        parentPhone: currentQueueStudent.guardian_phone || '',
+        message: bulkMessageText,
+        status: 'marked_as_sent',
+      });
+    } catch (logErr: any) {
+      console.warn('Could not record marked_as_sent to database:', logErr);
+      toast(friendlyError(logErr), 'error');
+    }
     setBulkQueueStatus((prev) => ({ ...prev, [currentQueueStudent.id]: 'marked_as_sent' }));
     toast(`Student ${queueIndex + 1} marked as sent!`);
 

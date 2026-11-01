@@ -131,14 +131,22 @@ export default function TerminalReportViewPage() {
     queryKey: ['whatsapp_share_single', studentId, semesterId, classId],
     enabled: !!studentId && !!semesterId && !!classId,
     queryFn: async () => {
-      const { data } = await supabase
-        .from('whatsapp_report_shares')
-        .select('*')
-        .eq('student_id', studentId!)
-        .eq('semester_id', semesterId)
-        .eq('class_id', classId)
-        .maybeSingle();
-      return data as WhatsAppReportShare | null;
+      try {
+        const { data, error } = await supabase
+          .from('whatsapp_report_shares')
+          .select('*')
+          .eq('student_id', studentId!)
+          .eq('semester_id', semesterId)
+          .eq('class_id', classId)
+          .maybeSingle();
+        if (error) {
+          console.warn('whatsapp_share_single query warning:', error.message);
+          return null;
+        }
+        return data as WhatsAppReportShare | null;
+      } catch {
+        return null;
+      }
     },
   });
 
@@ -655,7 +663,11 @@ export default function TerminalReportViewPage() {
                       schoolName: school?.name || 'School',
                       customMessage: shareMessage,
                     });
-                    await upsertShareMutation.mutateAsync({ status: 'whatsapp_opened' });
+                    try {
+                      await upsertShareMutation.mutateAsync({ status: 'whatsapp_opened' });
+                    } catch (logErr) {
+                      console.warn('Could not record WhatsApp share to database:', logErr);
+                    }
                     toast('PDF downloaded and WhatsApp opened! Attach the PDF and send to parent.');
                   } catch (err: any) {
                     toast(friendlyError(err), 'error');

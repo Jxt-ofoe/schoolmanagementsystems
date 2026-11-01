@@ -42,14 +42,21 @@ export default function MessageHistoryPage() {
     queryKey: ['sms_logs', schoolId],
     enabled: !!schoolId && isHeadmaster,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('sms_logs')
-        .select('*')
-        .eq('school_id', schoolId!)
-        .order('created_at', { ascending: false })
-        .limit(200);
-      if (error) throw error;
-      return (data ?? []) as SmsLog[];
+      try {
+        const { data, error } = await supabase
+          .from('sms_logs')
+          .select('*')
+          .eq('school_id', schoolId!)
+          .order('created_at', { ascending: false })
+          .limit(200);
+        if (error) {
+          console.warn('sms_logs query warning:', error.message);
+          return [] as SmsLog[];
+        }
+        return (data ?? []) as SmsLog[];
+      } catch {
+        return [] as SmsLog[];
+      }
     },
   });
 
@@ -58,14 +65,21 @@ export default function MessageHistoryPage() {
     queryKey: ['whatsapp_shares_history', schoolId],
     enabled: !!schoolId,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('whatsapp_report_shares')
-        .select('*')
-        .eq('school_id', schoolId!)
-        .order('created_at', { ascending: false })
-        .limit(200);
-      if (error) throw error;
-      return (data ?? []) as WhatsAppReportShare[];
+      try {
+        const { data, error } = await supabase
+          .from('whatsapp_report_shares')
+          .select('*')
+          .eq('school_id', schoolId!)
+          .order('created_at', { ascending: false })
+          .limit(200);
+        if (error) {
+          console.warn('whatsapp_report_shares query warning:', error.message);
+          return [] as WhatsAppReportShare[];
+        }
+        return (data ?? []) as WhatsAppReportShare[];
+      } catch {
+        return [] as WhatsAppReportShare[];
+      }
     },
   });
 
