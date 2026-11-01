@@ -31,6 +31,9 @@ const icons = {
   promote: i('M13 7l5 5m0 0l-5 5m5-5H6'),
   fee: i('M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6'),
   renew: i('M21 12a9 9 0 1 1-2.6-6.4L21 8m0-6v6h-6'),
+  message: i('M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'),
+  share: i('M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8M16 6l-4-4-4 4M12 2v13'),
+  history: i('M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0z'),
 };
 
 function navFor(isSuperAdmin: boolean, role: string | undefined): { section: string; items: NavItem[] }[] {
@@ -59,6 +62,12 @@ function navFor(isSuperAdmin: boolean, role: string | undefined): { section: str
       { to: '/school/grades', label: 'Grades Overview', icon: icons.chart },
       { to: '/school/reports', label: 'Analytics Reports', icon: icons.report },
     ] });
+    sections.push({ section: 'Communication', items: [
+      { to: '/school/communication/sms', label: 'Bulk SMS', icon: icons.message },
+      { to: '/school/communication/whatsapp', label: 'WhatsApp Report Cards', icon: icons.share },
+      { to: '/school/communication/history', label: 'Message History', icon: icons.history },
+      { to: '/school/communication/settings', label: 'SMS Settings', icon: icons.gear },
+    ] });
     sections.push({ section: 'Setup', items: [
       { to: '/school/teachers', label: 'Teachers', icon: icons.teacher },
       { to: '/school/classes', label: 'Classes', icon: icons.grid },
@@ -76,6 +85,10 @@ function navFor(isSuperAdmin: boolean, role: string | undefined): { section: str
       { to: '/teach/reports', label: 'Terminal Reports', icon: icons.report },
       { to: '/teach/grades', label: 'Enter Grades', icon: icons.chart },
       { to: '/teach/attendance', label: 'Attendance', icon: icons.check },
+    ] });
+    sections.push({ section: 'Communication', items: [
+      { to: '/teach/communication/whatsapp', label: 'WhatsApp Report Cards', icon: icons.share },
+      { to: '/teach/communication/history', label: 'Message History', icon: icons.history },
     ] });
   }
   return sections;

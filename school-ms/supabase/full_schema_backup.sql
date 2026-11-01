@@ -1,6 +1,6 @@
 -- =============================================================================
 -- SCHOOL MANAGEMENT SYSTEM - FULL MASTER DATABASE SCHEMA BACKUP
--- Generated: 2026-10-28T08:30:55.629Z
+-- Generated: 2026-11-01T00:07:38.164Z
 -- Contains: Core Schema, Triggers, RLS Policies, RPCs, Security, & Major Features
 -- =============================================================================
 
@@ -2849,5 +2849,545 @@ create policy "Authorized users can delete school logos"
 on storage.objects for delete
 to authenticated
 using ( bucket_id = 'school-logos' );
+
+
+
+-- -----------------------------------------------------------------------------
+-- MIGRATION: 20261030000008_security_remediation_phase1.sql
+-- -----------------------------------------------------------------------------
+
+-- =============================================================================
+-- Migration 8: Security Remediation Phase 1 & Defense-in-Depth Hardening
+-- -----------------------------------------------------------------------------
+-- Addresses Priority Security Findings:
+--  1. [F-01] Terminal Reports: Restrict publishing, remarks, and published edits
+--  2. [F-02] Result Submissions: Restrict review/approval transitions to Headmaster
+--  3. [F-03] Storage: Restrict school logo upload/update/delete to authorized headmaster
+--  4. [F-04] Fee Payments: Revoke hard delete; lock payment attribution and immutability
+--  5. [F-05] Multi-Tenancy: Add prevent_school_change triggers to Migration 6 tables
+-- =============================================================================
+
+-- -----------------------------------------------------------------------------
+-- 1. [F-01] Terminal Reports: Integrity Trigger & Lifecycle Enforcement
+-- -----------------------------------------------------------------------------
+create or replace function private.validate_terminal_report()
+returns trigger language plpgsql security definer set search_path = '' as $$
+declare
+  v_is_hm boolean;
+begin
+  v_is_hm := private.is_headmaster(new.school_id) or (select private.is_super_admin());
+
+  if tg_op = 'INSERT' then
+    -- Non-headmaster cannot set status = 'published' on insert
+    if new.status = 'published' and not v_is_hm then
+      raise exception 'Only the headmaster can approve and publish a terminal report' using errcode = '42501';
+    end if;
+
+    -- Non-headmaster cannot forge headmaster remarks or promotion recommendation
+    if not v_is_hm then
+      new.headmaster_remarks := null;
+      new.promotion_recommendation := null;
+    end if;
+
+    if new.status = 'published' then
+      new.published_at := coalesce(new.published_at, now());
+      new.published_by := coalesce((select auth.uid()), new.published_by);
+    end if;
+
+    return new;
+  end if;
+
+  if tg_op = 'UPDATE' then
+    -- Once a report is published, non-headmasters cannot alter it at all
+    if old.status = 'published' and not v_is_hm then
+      raise exception 'Only the headmaster can modify or unpublish a published report card' using errcode = '42501';
+    end if;
+
+    -- Non-headmaster cannot transition report to 'published' or 'approved'
+    if new.status in ('published','approved') and old.status not in ('published','approved') and not v_is_hm then
+      raise exception 'Only the headmaster can approve and publish a terminal report' using errcode = '42501';
+    end if;
+
+    -- Non-headmaster cannot alter headmaster remarks or promotion recommendation
+    if not v_is_hm then
+      new.headmaster_remarks := old.headmaster_remarks;
+      new.promotion_recommendation := old.promotion_recommendation;
+    end if;
+
+    -- Attribution locking on publishing
+    if new.status = 'published' and (old.status is distinct from 'published' or old.published_by is null) then
+      new.published_at := coalesce(new.published_at, now());
+      new.published_by := coalesce((select auth.uid()), new.published_by);
+    elsif new.status <> 'published' then
+      new.published_at := null;
+      new.published_by := null;
+    else
+      new.published_by := old.published_by;
+      new.published_at := old.published_at;
+    end if;
+
+    new.updated_at := now();
+    return new;
+  end if;
+
+  return new;
+end $$;
+
+drop trigger if exists validate_terminal_report on public.terminal_reports;
+create trigger validate_terminal_report
+  before insert or update on public.terminal_reports
+  for each row execute function private.validate_terminal_report();
+
+-- -----------------------------------------------------------------------------
+-- 2. [F-02] Result Submissions: Restrict Review and Approval to Headmaster
+-- -----------------------------------------------------------------------------
+create or replace function private.validate_subject_result_submission()
+returns trigger language plpgsql security definer set search_path = '' as $$
+declare
+  v_is_hm boolean;
+begin
+  v_is_hm := private.is_headmaster(new.school_id) or (select private.is_super_admin());
+
+  if tg_op = 'INSERT' then
+    if new.status in ('reviewed','approved') and not v_is_hm then
+      raise exception 'Only the headmaster can review or approve subject submissions' using errcode = '42501';
+    end if;
+
+    new.submitted_by := coalesce((select auth.uid()), new.submitted_by);
+    if new.status = 'submitted' and new.submitted_at is null then
+      new.submitted_at := now();
+    end if;
+
+    if v_is_hm and new.status in ('reviewed','approved') then
+      new.reviewed_by := coalesce((select auth.uid()), new.reviewed_by);
+      new.reviewed_at := coalesce(new.reviewed_at, now());
+    else
+      new.reviewed_by := null;
+      new.reviewed_at := null;
+    end if;
+
+    return new;
+  end if;
+
+  if tg_op = 'UPDATE' then
+    -- Non-headmaster cannot transition status to 'reviewed', 'approved', or 'returned'
+    if new.status in ('reviewed','approved','returned') and old.status not in ('reviewed','approved','returned') and not v_is_hm then
+      raise exception 'Only the headmaster can review, approve, or return subject submissions' using errcode = '42501';
+    end if;
+
+    -- If already approved, teacher cannot revert or alter without headmaster
+    if old.status = 'approved' and not v_is_hm then
+      raise exception 'Only the headmaster can alter or reopen an approved subject submission' using errcode = '42501';
+    end if;
+
+    -- Attribution locks on submission
+    if new.status = 'submitted' and old.status <> 'submitted' then
+      new.submitted_by := coalesce((select auth.uid()), new.submitted_by);
+      new.submitted_at := now();
+    else
+      new.submitted_by := old.submitted_by;
+      new.submitted_at := old.submitted_at;
+    end if;
+
+    -- Attribution locks on review
+    if v_is_hm and new.status in ('reviewed','approved','returned') then
+      new.reviewed_by := coalesce((select auth.uid()), new.reviewed_by);
+      new.reviewed_at := now();
+    else
+      new.reviewed_by := old.reviewed_by;
+      new.reviewed_at := old.reviewed_at;
+      new.feedback := old.feedback;
+    end if;
+
+    new.updated_at := now();
+    return new;
+  end if;
+
+  return new;
+end $$;
+
+drop trigger if exists validate_subject_result_submission on public.subject_result_submissions;
+create trigger validate_subject_result_submission
+  before insert or update on public.subject_result_submissions
+  for each row execute function private.validate_subject_result_submission();
+
+-- -----------------------------------------------------------------------------
+-- 3. [F-03] Storage: Multi-Tenant Authorization for `school-logos` Bucket
+-- -----------------------------------------------------------------------------
+create or replace function private.can_manage_school_logo(p_path text)
+returns boolean language plpgsql stable security definer set search_path = '' as $$
+declare
+  v_parts text[];
+  v_school_id uuid;
+begin
+  if (select private.is_super_admin()) then
+    return true;
+  end if;
+
+  v_parts := string_to_array(p_path, '/');
+  if array_length(v_parts, 1) < 2 then
+    return false;
+  end if;
+
+  -- Verify first segment of path is a valid UUID representing the school_id
+  if v_parts[1] !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
+    return false;
+  end if;
+
+  v_school_id := v_parts[1]::uuid;
+  return private.is_headmaster(v_school_id);
+end $$;
+grant execute on function private.can_manage_school_logo(text) to authenticated, service_role;
+
+-- Update Storage RLS policies to enforce school ownership on upload, update, delete
+drop policy if exists "Authorized users can upload school logos" on storage.objects;
+create policy "Authorized users can upload school logos"
+on storage.objects for insert
+to authenticated
+with check (
+  bucket_id = 'school-logos'
+  and private.can_manage_school_logo(name)
+);
+
+drop policy if exists "Authorized users can update school logos" on storage.objects;
+create policy "Authorized users can update school logos"
+on storage.objects for update
+to authenticated
+using (
+  bucket_id = 'school-logos'
+  and private.can_manage_school_logo(name)
+);
+
+drop policy if exists "Authorized users can delete school logos" on storage.objects;
+create policy "Authorized users can delete school logos"
+on storage.objects for delete
+to authenticated
+using (
+  bucket_id = 'school-logos'
+  and private.can_manage_school_logo(name)
+);
+
+-- -----------------------------------------------------------------------------
+-- 4. [F-04] Fee Management: Revoke Hard DELETE and Lock Payment Immutability
+-- -----------------------------------------------------------------------------
+-- Prevent hard deletion of payment records by any authenticated user
+revoke delete on public.student_fee_payments from authenticated;
+
+create or replace function private.validate_student_fee_payment()
+returns trigger language plpgsql security definer set search_path = '' as $$
+begin
+  if tg_op = 'INSERT' then
+    new.recorded_by := coalesce((select auth.uid()), new.recorded_by);
+    new.status := 'valid';
+    new.reversal_reason := null;
+    new.reversed_at := null;
+    new.reversed_by := null;
+    return new;
+  end if;
+
+  if tg_op = 'UPDATE' then
+    -- Financial transaction fields must be strictly immutable once recorded
+    if new.school_id <> old.school_id or
+       new.student_id <> old.student_id or
+       new.semester_id <> old.semester_id or
+       new.receipt_number <> old.receipt_number or
+       new.amount <> old.amount or
+       new.method <> old.method or
+       new.paid_on <> old.paid_on or
+       new.recorded_by <> old.recorded_by then
+      raise exception 'Payment amount, receipt number, student, and date are immutable once recorded' using errcode = '42501';
+    end if;
+
+    -- Manage reversal workflow
+    if old.status = 'valid' and new.status = 'reversed' then
+      if coalesce(btrim(new.reversal_reason), '') = '' then
+        raise exception 'A reason is required to reverse a fee payment' using errcode = '23514';
+      end if;
+      new.reversed_at := now();
+      new.reversed_by := coalesce((select auth.uid()), new.reversed_by);
+    elsif old.status = 'reversed' and new.status = 'valid' then
+      raise exception 'A reversed fee payment cannot be un-reversed' using errcode = '42501';
+    end if;
+
+    new.updated_at := now();
+    return new;
+  end if;
+
+  return new;
+end $$;
+
+drop trigger if exists validate_student_fee_payment on public.student_fee_payments;
+create trigger validate_student_fee_payment
+  before insert or update on public.student_fee_payments
+  for each row execute function private.validate_student_fee_payment();
+
+-- Fee charges attribution lock
+create or replace function private.validate_student_fee_charge()
+returns trigger language plpgsql security definer set search_path = '' as $$
+begin
+  if tg_op = 'INSERT' then
+    new.created_by := coalesce((select auth.uid()), new.created_by);
+    return new;
+  end if;
+  if tg_op = 'UPDATE' then
+    new.created_by := old.created_by;
+    return new;
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists validate_student_fee_charge on public.student_fee_charges;
+create trigger validate_student_fee_charge
+  before insert or update on public.student_fee_charges
+  for each row execute function private.validate_student_fee_charge();
+
+-- -----------------------------------------------------------------------------
+-- 5. [F-05] Multi-Tenancy: Attach prevent_school_change to Migration 6 Tables
+-- -----------------------------------------------------------------------------
+do $$
+declare t text;
+begin
+  foreach t in array array[
+    'examinations','examination_classes','examination_subjects',
+    'subject_result_submissions','school_grading_configs','terminal_reports',
+    'fee_categories','fee_structures','student_fee_charges','student_fee_payments','student_promotions'
+  ] loop
+    execute format('drop trigger if exists prevent_school_change on public.%I', t);
+    execute format('create trigger prevent_school_change before update of school_id on public.%I
+                    for each row execute function private.prevent_school_change()', t);
+  end loop;
+end $$;
+
+
+
+-- -----------------------------------------------------------------------------
+-- MIGRATION: 20261101000009_communication_centre.sql
+-- -----------------------------------------------------------------------------
+
+-- =============================================================================
+-- Migration 9: Communication Centre (Bulk SMS & Manual WhatsApp Sharing)
+-- -----------------------------------------------------------------------------
+-- Addresses:
+--  1. Communication settings & SMS gateway credentials (school-isolated)
+--  2. Message templates for examinations, report cards, fees, attendance, announcements
+--  3. Communication batches for bulk dispatches
+--  4. SMS delivery logs, costs, and provider response tracking
+--  5. WhatsApp manual report card share tracking & audit history
+-- =============================================================================
+
+-- -----------------------------------------------------------------------------
+-- 1. Communication Settings
+-- -----------------------------------------------------------------------------
+create table if not exists public.communication_settings (
+  id                  uuid primary key default gen_random_uuid(),
+  school_id           uuid not null references public.schools(id) on delete cascade,
+  sms_provider        text not null default 'arkesel' check (sms_provider in ('arkesel', 'hubtel', 'custom')),
+  sender_id           text not null default 'SchoolMS' check (char_length(btrim(sender_id)) between 1 and 11),
+  api_key             text check (api_key is null or char_length(api_key) <= 300),
+  api_secret          text check (api_secret is null or char_length(api_secret) <= 300),
+  school_signature    text check (school_signature is null or char_length(school_signature) <= 120),
+  sms_rate_per_unit   numeric(6,4) not null default 0.0500 check (sms_rate_per_unit >= 0),
+  is_sms_enabled      boolean not null default false,
+  created_at          timestamptz not null default now(),
+  updated_at          timestamptz not null default now(),
+  unique (school_id)
+);
+create index if not exists comm_settings_school_idx on public.communication_settings (school_id);
+
+-- -----------------------------------------------------------------------------
+-- 2. Message Templates
+-- -----------------------------------------------------------------------------
+create table if not exists public.message_templates (
+  id          uuid primary key default gen_random_uuid(),
+  school_id   uuid not null references public.schools(id) on delete cascade,
+  title       text not null check (char_length(btrim(title)) between 1 and 100),
+  category    text not null check (category in ('exam', 'report_card', 'fee', 'attendance', 'general')),
+  content     text not null check (char_length(btrim(content)) between 1 and 1000),
+  is_default  boolean not null default false,
+  created_by  uuid references auth.users(id) on delete set null,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+create index if not exists message_templates_school_cat_idx on public.message_templates (school_id, category);
+
+-- -----------------------------------------------------------------------------
+-- 3. Communication Batches
+-- -----------------------------------------------------------------------------
+create table if not exists public.communication_batches (
+  id                uuid primary key default gen_random_uuid(),
+  school_id         uuid not null references public.schools(id) on delete cascade,
+  channel           text not null check (channel in ('sms', 'whatsapp')),
+  title             text not null check (char_length(btrim(title)) between 1 and 150),
+  filter_type       text not null default 'all' check (filter_type in ('all', 'class', 'selected')),
+  target_class_id   uuid references public.classes(id) on delete set null,
+  total_recipients  integer not null default 0 check (total_recipients >= 0),
+  successful_count  integer not null default 0 check (successful_count >= 0),
+  failed_count      integer not null default 0 check (failed_count >= 0),
+  estimated_cost    numeric(10,2) not null default 0.00 check (estimated_cost >= 0),
+  status            text not null default 'completed' check (status in ('pending', 'processing', 'completed', 'failed', 'cancelled')),
+  created_by        uuid references auth.users(id) on delete set null,
+  created_at        timestamptz not null default now(),
+  foreign key (target_class_id, school_id) references public.classes(id, school_id) on delete set null
+);
+create index if not exists comm_batches_school_idx on public.communication_batches (school_id, created_at desc);
+
+-- -----------------------------------------------------------------------------
+-- 4. SMS Delivery Logs
+-- -----------------------------------------------------------------------------
+create table if not exists public.sms_logs (
+  id                  uuid primary key default gen_random_uuid(),
+  school_id           uuid not null references public.schools(id) on delete cascade,
+  batch_id            uuid references public.communication_batches(id) on delete set null,
+  student_id          uuid references public.students(id) on delete set null,
+  recipient_name      text not null check (char_length(btrim(recipient_name)) between 1 and 150),
+  recipient_phone     text not null check (char_length(btrim(recipient_phone)) between 7 and 25),
+  message             text not null check (char_length(message) <= 1500),
+  units               integer not null default 1 check (units >= 1),
+  estimated_cost      numeric(6,4) not null default 0.0500 check (estimated_cost >= 0),
+  status              text not null default 'sent' check (status in ('pending', 'sent', 'delivered', 'failed')),
+  provider            text not null default 'arkesel',
+  provider_message_id text,
+  error_message       text,
+  sent_by             uuid references auth.users(id) on delete set null,
+  created_at          timestamptz not null default now(),
+  foreign key (student_id, school_id) references public.students(id, school_id) on delete set null
+);
+create index if not exists sms_logs_school_idx on public.sms_logs (school_id, created_at desc);
+create index if not exists sms_logs_student_idx on public.sms_logs (student_id);
+
+-- -----------------------------------------------------------------------------
+-- 5. WhatsApp Manual Report Card Share Logs
+-- -----------------------------------------------------------------------------
+create table if not exists public.whatsapp_report_shares (
+  id                  uuid primary key default gen_random_uuid(),
+  school_id           uuid not null references public.schools(id) on delete cascade,
+  student_id          uuid not null,
+  terminal_report_id  uuid references public.terminal_reports(id) on delete set null,
+  semester_id         uuid not null,
+  class_id            uuid not null,
+  parent_name         text not null check (char_length(btrim(parent_name)) between 1 and 150),
+  parent_phone        text not null check (char_length(btrim(parent_phone)) between 7 and 25),
+  message             text check (message is null or char_length(message) <= 1500),
+  status              text not null default 'pdf_generated' check (status in ('pdf_generated', 'whatsapp_opened', 'marked_as_sent')),
+  notes               text check (notes is null or char_length(notes) <= 500),
+  shared_by           uuid references auth.users(id) on delete set null,
+  created_at          timestamptz not null default now(),
+  updated_at          timestamptz not null default now(),
+  foreign key (student_id, school_id) references public.students(id, school_id) on delete cascade,
+  foreign key (semester_id, school_id) references public.semesters(id, school_id) on delete restrict,
+  foreign key (class_id, school_id) references public.classes(id, school_id) on delete restrict,
+  unique (student_id, semester_id, class_id)
+);
+create index if not exists whatsapp_shares_lookup_idx on public.whatsapp_report_shares (class_id, semester_id, status);
+
+-- -----------------------------------------------------------------------------
+-- 6. Row Level Security Policies
+-- -----------------------------------------------------------------------------
+do $$
+declare t text;
+begin
+  foreach t in array array[
+    'communication_settings','message_templates','communication_batches','sms_logs','whatsapp_report_shares'
+  ] loop
+    execute format('alter table public.%I enable row level security', t);
+    execute format('grant select, insert, update on public.%I to authenticated', t);
+  end loop;
+end $$;
+
+-- Hard delete revoked on audit log tables
+revoke delete on public.sms_logs from authenticated;
+revoke delete on public.whatsapp_report_shares from authenticated;
+
+-- Communication settings: Headmasters and Super Admins manage
+create policy "comm_settings: headmaster or super admin read" on public.communication_settings
+  for select to authenticated using (private.is_headmaster(school_id) or (select private.is_super_admin()));
+
+create policy "comm_settings: headmaster write" on public.communication_settings
+  for all to authenticated using (private.is_headmaster(school_id)) with check (private.is_headmaster(school_id));
+
+-- Message templates: Members can read, Headmaster can manage
+create policy "templates: members read" on public.message_templates
+  for select to authenticated using (private.is_member(school_id));
+
+create policy "templates: headmaster write" on public.message_templates
+  for all to authenticated using (private.is_headmaster(school_id)) with check (private.is_headmaster(school_id));
+
+-- Communication batches: Members can read, Headmaster can manage
+create policy "comm_batches: members read" on public.communication_batches
+  for select to authenticated using (private.is_member(school_id));
+
+create policy "comm_batches: headmaster write" on public.communication_batches
+  for all to authenticated using (private.is_headmaster(school_id)) with check (private.is_headmaster(school_id));
+
+-- SMS logs: Headmasters and Super Admins read; Headmaster inserts
+create policy "sms_logs: headmaster or super admin read" on public.sms_logs
+  for select to authenticated using (private.is_headmaster(school_id) or (select private.is_super_admin()));
+
+create policy "sms_logs: headmaster insert" on public.sms_logs
+  for insert to authenticated with check (private.is_headmaster(school_id));
+
+-- WhatsApp report shares: Headmasters and assigned class teachers read and manage
+create policy "whatsapp_shares: headmaster or class teacher read" on public.whatsapp_report_shares
+  for select to authenticated using (private.is_headmaster(school_id) or private.teaches_class(class_id));
+
+create policy "whatsapp_shares: headmaster or class teacher insert" on public.whatsapp_report_shares
+  for insert to authenticated with check (private.is_headmaster(school_id) or private.teaches_class(class_id));
+
+create policy "whatsapp_shares: headmaster or class teacher update" on public.whatsapp_report_shares
+  for update to authenticated using (
+    private.is_headmaster(school_id) or private.teaches_class(class_id)
+  ) with check (
+    private.is_headmaster(school_id) or private.teaches_class(class_id)
+  );
+
+-- -----------------------------------------------------------------------------
+-- 7. Triggers for updated_at and prevent_school_change
+-- -----------------------------------------------------------------------------
+do $$
+declare t text;
+begin
+  foreach t in array array['communication_settings','message_templates','whatsapp_report_shares'] loop
+    execute format('create trigger set_updated_at before update on public.%I
+                    for each row execute function private.set_updated_at()', t);
+  end loop;
+
+  foreach t in array array[
+    'communication_settings','message_templates','communication_batches','sms_logs','whatsapp_report_shares'
+  ] loop
+    execute format('create trigger prevent_school_change before update of school_id on public.%I
+                    for each row execute function private.prevent_school_change()', t);
+  end loop;
+end $$;
+
+-- -----------------------------------------------------------------------------
+-- 8. Seed Default Message Templates for Every School
+-- -----------------------------------------------------------------------------
+create or replace function public.seed_default_communication_templates(p_school_id uuid)
+returns void language plpgsql security definer set search_path = '' as $$
+begin
+  if not (private.is_headmaster(p_school_id) or (select private.is_super_admin())) then
+    raise exception 'Not authorised' using errcode = '42501';
+  end if;
+
+  insert into public.message_templates (school_id, title, category, content, is_default)
+  values
+    (p_school_id, 'Terminal Report Card Ready', 'report_card',
+     'Dear {parent_name}, the examination report card for {student_name} ({class_name}) is ready for review. Please contact {school_name} for details. Thank you.', true),
+    (p_school_id, 'Upcoming Examinations', 'exam',
+     'Dear {parent_name}, please be informed that {exam_name} for {student_name} starts soon. Kindly ensure adequate revision at home. Regards, {school_name}.', true),
+    (p_school_id, 'School Fee Reminder', 'fee',
+     'Dear {parent_name}, this is a gentle reminder regarding school fees for {student_name}. Kindly settle outstanding balance at your earliest convenience. - {school_name}', true),
+    (p_school_id, 'Attendance Notice', 'attendance',
+     'Dear {parent_name}, please be notified that {student_name} was marked absent from {class_name} today. Please contact {school_name} if you have queries.', true),
+    (p_school_id, 'General School Announcement', 'general',
+     'Dear Parent/Guardian, please take note of important school announcements from {school_name}. Vacation begins on {date}. Best regards.', true)
+  on conflict do nothing;
+
+  -- Ensure settings exist with sensible defaults
+  insert into public.communication_settings (school_id, sms_provider, sender_id, school_signature, is_sms_enabled)
+  values (p_school_id, 'arkesel', 'SchoolMS', (select name from public.schools where id = p_school_id), false)
+  on conflict (school_id) do nothing;
+end $$;
+grant execute on function public.seed_default_communication_templates(uuid) to authenticated, service_role;
 
 

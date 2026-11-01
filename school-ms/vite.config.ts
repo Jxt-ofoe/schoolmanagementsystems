@@ -66,15 +66,41 @@ function adminApiPlugin() {
     }
   };
 
+  const smsHandler = async (req: any, res: any) => {
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', (chunk: any) => { body += chunk; });
+      req.on('end', async () => {
+        try {
+          const data = JSON.parse(body);
+          const authHeader = req.headers['authorization'];
+          const { handleSendSMS } = await import('./api/communication/send-sms.js');
+          const result = await handleSendSMS(data, authHeader);
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify(result));
+        } catch (err: any) {
+          res.statusCode = 400;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: err.message || 'Failed to dispatch SMS' }));
+        }
+      });
+    } else {
+      res.statusCode = 405;
+      res.end(JSON.stringify({ error: 'Method not allowed' }));
+    }
+  };
+
   return {
     name: 'admin-api-plugin',
     configureServer(server: any) {
       server.middlewares.use('/api/staff/create', handler);
       server.middlewares.use('/api/school/logo', logoHandler);
+      server.middlewares.use('/api/communication/send-sms', smsHandler);
     },
     configurePreviewServer(server: any) {
       server.middlewares.use('/api/staff/create', handler);
       server.middlewares.use('/api/school/logo', logoHandler);
+      server.middlewares.use('/api/communication/send-sms', smsHandler);
     },
   };
 }

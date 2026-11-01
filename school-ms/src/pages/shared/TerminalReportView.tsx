@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
@@ -8,12 +8,14 @@ import { classLabel, formatDate, todayISO } from '../../lib/format';
 import { friendlyError } from '../../lib/errors';
 import { useToast } from '../../lib/toast';
 import { computePositions, formatPosition, gradeFor } from '../../lib/grades';
-import type { SchoolGradingConfig, Student, TerminalReport } from '../../lib/types';
+import { formatWhatsAppNumber, executeManualWhatsAppShare } from '../../lib/reportPdf';
+import type { SchoolGradingConfig, Student, TerminalReport, WhatsAppReportShare } from '../../lib/types';
 import {
   Alert,
   Button,
   ErrorBox,
   Input,
+  Modal,
   PageHeader,
   Select,
   Spinner,
@@ -23,7 +25,7 @@ import {
 export default function TerminalReportViewPage() {
   const { studentId } = useParams();
   const [params] = useSearchParams();
-  const { active } = useAuth();
+  const { ctx, active } = useAuth();
   const schoolId = active?.school_id;
   const qc = useQueryClient();
   const toast = useToast();
@@ -42,6 +44,13 @@ export default function TerminalReportViewPage() {
   const [headmasterRemarks, setHeadmasterRemarks] = useState('');
   const [promotionRec, setPromotionRec] = useState<string>('');
   const [nextTermBegins, setNextTermBegins] = useState('');
+
+  // WhatsApp sharing states
+  const reportContainerRef = useRef<HTMLDivElement>(null);
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [parentPhone, setParentPhone] = useState('');
+  const [shareMessage, setShareMessage] = useState('');
+  const [isSharing, setIsSharing] = useState(false);
 
   // School profile & info
   const schoolQuery = useSchoolDetails(schoolId);
@@ -114,6 +123,57 @@ export default function TerminalReportViewPage() {
         .eq('class_id', classId)
         .maybeSingle();
       return data as TerminalReport | null;
+    },
+  });
+
+  // Existing WhatsApp share log
+  const shareQuery = useQuery({
+    queryKey: ['whatsapp_share_single', studentId, semesterId, classId],
+    enabled: !!studentId && !!semesterId && !!classId,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('whatsapp_report_shares')
+        .select('*')
+        .eq('student_id', studentId!)
+        .eq('semester_id', semesterId)
+        .eq('class_id', classId)
+        .maybeSingle();
+      return data as WhatsAppReportShare | null;
+    },
+  });
+
+  const upsertShareMutation = useMutation({
+    mutationFn: async ({ status }: { status: 'pdf_generated' | 'whatsapp_opened' | 'marked_as_sent' }) => {
+      if (!student || !semesterId || !classId) return;
+      const { data, error } = await supabase
+        .from('whatsapp_report_shares')
+        .upsert(
+          {
+            school_id: schoolId,
+            student_id: student.id,
+            terminal_report_id: existingReport.data?.id || null,
+            semester_id: semesterId,
+            class_id: classId,
+            parent_name: student.guardian_name || 'Parent/Guardian',
+            parent_phone: parentPhone || student.guardian_phone || 'N/A',
+            message: shareMessage || null,
+            status,
+            shared_by: ctx?.user_id || null,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'student_id, semester_id, class_id' }
+        )
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['whatsapp_share_single', studentId, semesterId, classId] });
+      qc.invalidateQueries({ queryKey: ['whatsapp_report_shares', classId, semesterId] });
+    },
+    onError: (err) => {
+      toast(friendlyError(err), 'error');
     },
   });
 
@@ -315,6 +375,18 @@ export default function TerminalReportViewPage() {
               <Button
                 size="sm"
                 variant="secondary"
+                onClick={() => {
+                  setParentPhone(formatWhatsAppNumber(student.guardian_phone) || student.guardian_phone || '');
+                  const defaultMsg = `Dear ${student.guardian_name || 'Parent'}, the examination report card for ${student.first_name} ${student.last_name} is ready. Please find the attached official terminal report card. Thank you. — ${school?.name || 'School'}`;
+                  setShareMessage(defaultMsg);
+                  setShareModalOpen(true);
+                }}
+              >
+                📲 Share via WhatsApp
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
                 onClick={() => saveReportMutation.mutate(false)}
                 loading={saveReportMutation.isPending}
               >
@@ -330,6 +402,22 @@ export default function TerminalReportViewPage() {
             </>
           }
         />
+
+        {shareQuery.data?.status === 'marked_as_sent' && (
+          <div style={{ marginBottom: 16 }}>
+            <Alert tone="success">
+              Report card has been manually sent to parent via WhatsApp ✓ ({formatDate(shareQuery.data.updated_at)})
+            </Alert>
+          </div>
+        )}
+
+        {shareQuery.data?.status === 'whatsapp_opened' && (
+          <div style={{ marginBottom: 16 }}>
+            <Alert tone="info">
+              WhatsApp was opened for parent <strong>{shareQuery.data.parent_name}</strong> ({shareQuery.data.parent_phone}). Click "Mark as Sent" once sent.
+            </Alert>
+          </div>
+        )}
 
         {incompleteCount > 0 && (
           <div style={{ marginBottom: 16 }}>
@@ -349,7 +437,7 @@ export default function TerminalReportViewPage() {
       </div>
 
       {/* PRINT-READY A4 REPORT CARD */}
-      <div className="terminal-report-container" style={{ margin: '0 auto', maxWidth: 860, background: '#fff', padding: 24, borderRadius: 'var(--radius)', boxShadow: 'var(--shadow)', border: '1px solid var(--line)' }}>
+      <div ref={reportContainerRef} className="terminal-report-container" style={{ margin: '0 auto', maxWidth: 860, background: '#fff', padding: 24, borderRadius: 'var(--radius)', boxShadow: 'var(--shadow)', border: '1px solid var(--line)' }}>
         
         {/* School Header */}
         <div style={{ textAlign: 'center', borderBottom: '2px solid var(--green-800)', paddingBottom: 12, marginBottom: 16 }}>
@@ -525,6 +613,91 @@ export default function TerminalReportViewPage() {
         </div>
 
       </div>
+
+      {/* MANUAL WHATSAPP SHARE MODAL */}
+      <Modal
+        open={shareModalOpen}
+        title={`Share Report Card via WhatsApp: ${student.first_name} ${student.last_name}`}
+        onClose={() => setShareModalOpen(false)}
+        wide
+        footer={
+          <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+            {shareQuery.data?.status !== 'marked_as_sent' ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={async () => {
+                  await upsertShareMutation.mutateAsync({ status: 'marked_as_sent' });
+                  toast('Marked as sent!');
+                  setShareModalOpen(false);
+                }}
+              >
+                ✓ Mark as Sent
+              </Button>
+            ) : (
+              <span className="small muted">Already marked as sent ✓</span>
+            )}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Button variant="secondary" onClick={() => setShareModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                loading={isSharing}
+                onClick={async () => {
+                  if (!reportContainerRef.current) return;
+                  setIsSharing(true);
+                  try {
+                    await executeManualWhatsAppShare({
+                      element: reportContainerRef.current,
+                      parentPhone,
+                      studentName: `${student.first_name} ${student.last_name}`,
+                      schoolName: school?.name || 'School',
+                      customMessage: shareMessage,
+                    });
+                    await upsertShareMutation.mutateAsync({ status: 'whatsapp_opened' });
+                    toast('PDF downloaded and WhatsApp opened! Attach the PDF and send to parent.');
+                  } catch (err: any) {
+                    toast(friendlyError(err), 'error');
+                  } finally {
+                    setIsSharing(false);
+                  }
+                }}
+              >
+                📲 Download PDF & Open WhatsApp
+              </Button>
+            </div>
+          </div>
+        }
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <Alert tone="info">
+            <strong>Manual Sharing Workflow:</strong> The official report card will be converted to a high-resolution A4 PDF and downloaded to your device. WhatsApp will then open with the parent's phone number and prepared message, ready for you to attach the downloaded PDF.
+          </Alert>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
+            <Input
+              label="Parent / Guardian Name"
+              value={student.guardian_name || 'Not recorded'}
+              readOnly
+            />
+            <Input
+              label="WhatsApp Phone Number"
+              value={parentPhone}
+              onChange={(e) => setParentPhone(e.target.value)}
+              placeholder="e.g. 0244123456 or +233244123456"
+              hint="Normalized to +233 Ghana format automatically."
+            />
+          </div>
+
+          <Textarea
+            label="WhatsApp Message"
+            rows={4}
+            value={shareMessage}
+            onChange={(e) => setShareMessage(e.target.value)}
+          />
+        </div>
+      </Modal>
     </>
   );
 }

@@ -360,3 +360,90 @@ export interface ConsolidatedStudentRow {
   is_incomplete?: boolean;
 }
 
+export type SmsProvider = 'arkesel' | 'hubtel' | 'custom';
+export type TemplateCategory = 'exam' | 'report_card' | 'fee' | 'attendance' | 'general';
+export type CommunicationChannel = 'sms' | 'whatsapp';
+export type SmsStatus = 'pending' | 'sent' | 'delivered' | 'failed';
+export type WhatsAppShareStatus = 'pdf_generated' | 'whatsapp_opened' | 'marked_as_sent';
+
+export interface CommunicationSettings {
+  id: string;
+  school_id: string;
+  provider: SmsProvider;
+  sms_sender_id: string;
+  sms_api_key: string | null;
+  sms_api_secret: string | null;
+  school_signature: string | null;
+  sms_rate_per_unit: number;
+  is_sms_enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MessageTemplate {
+  id: string;
+  school_id: string;
+  name: string;
+  title?: string;
+  category: TemplateCategory;
+  content: string;
+  is_default: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CommunicationBatch {
+  id: string;
+  school_id: string;
+  channel: CommunicationChannel;
+  title: string;
+  filter_type: 'all' | 'class' | 'selected';
+  target_class_id: string | null;
+  total_recipients: number;
+  successful_count: number;
+  failed_count: number;
+  estimated_cost: number;
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface SmsLog {
+  id: string;
+  school_id: string;
+  batch_id: string | null;
+  student_id: string | null;
+  recipient_name: string;
+  recipient_phone: string;
+  message: string;
+  units: number;
+  estimated_cost: number;
+  status: SmsStatus;
+  provider: string;
+  provider_message_id: string | null;
+  error_message: string | null;
+  sent_by: string | null;
+  created_at: string;
+  student?: Student;
+}
+
+export interface WhatsAppReportShare {
+  id: string;
+  school_id: string;
+  student_id: string;
+  terminal_report_id: string | null;
+  semester_id: string;
+  class_id: string;
+  parent_name: string;
+  parent_phone: string;
+  message: string | null;
+  status: WhatsAppShareStatus;
+  notes: string | null;
+  shared_by: string | null;
+  created_at: string;
+  updated_at: string;
+  student?: Student;
+}
+
+

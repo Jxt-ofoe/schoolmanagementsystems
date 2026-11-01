@@ -44,6 +44,11 @@ const GradeEntryPage = lazy(() => import('./pages/shared/GradeEntry'));
 const ConsolidatedResultsPage = lazy(() => import('./pages/shared/ConsolidatedResults'));
 const TerminalReportViewPage = lazy(() => import('./pages/shared/TerminalReportView'));
 const BatchTerminalReportsPage = lazy(() => import('./pages/shared/BatchTerminalReports'));
+// communication
+const BulkSmsPage = lazy(() => import('./pages/communication/BulkSms'));
+const WhatsAppSharePage = lazy(() => import('./pages/communication/WhatsAppShare'));
+const MessageHistoryPage = lazy(() => import('./pages/communication/MessageHistory'));
+const CommunicationSettingsPage = lazy(() => import('./pages/communication/CommunicationSettings'));
 
 export function App() {
   return (
@@ -85,6 +90,10 @@ export function App() {
           <Route path="school/reports" element={<RequireRole need="headmaster"><ReportsPage /></RequireRole>} />
           <Route path="school/billing" element={<RequireRole need="headmaster"><SchoolBillingPage /></RequireRole>} />
           <Route path="school/settings" element={<RequireRole need="headmaster"><SchoolSettingsPage /></RequireRole>} />
+          <Route path="school/communication/sms" element={<RequireRole need="headmaster"><BulkSmsPage /></RequireRole>} />
+          <Route path="school/communication/whatsapp" element={<RequireRole need="headmaster"><WhatsAppSharePage /></RequireRole>} />
+          <Route path="school/communication/history" element={<RequireRole need="headmaster"><MessageHistoryPage /></RequireRole>} />
+          <Route path="school/communication/settings" element={<RequireRole need="headmaster"><CommunicationSettingsPage /></RequireRole>} />
           <Route path="school/audit" element={<Navigate to="/school" replace />} />
 
           <Route path="teach" element={<RequireRole need="teacher"><TeacherDashboard /></RequireRole>} />
@@ -92,6 +101,8 @@ export function App() {
           <Route path="teach/consolidated" element={<RequireRole need="teacher"><ConsolidatedResultsPage defaultRole="teacher" /></RequireRole>} />
           <Route path="teach/reports" element={<RequireRole need="teacher"><BatchTerminalReportsPage /></RequireRole>} />
           <Route path="teach/reports/:studentId" element={<RequireRole need="teacher"><TerminalReportViewPage /></RequireRole>} />
+          <Route path="teach/communication/whatsapp" element={<RequireRole need="teacher"><WhatsAppSharePage /></RequireRole>} />
+          <Route path="teach/communication/history" element={<RequireRole need="teacher"><MessageHistoryPage /></RequireRole>} />
           <Route path="teach/attendance" element={<RequireRole need="teacher"><TeacherAttendancePage /></RequireRole>} />
           <Route path="teach/grades" element={<RequireRole need="teacher"><TeacherGradesPage /></RequireRole>} />
           <Route path="teach/class/:classId" element={<RequireRole need="teacher"><TeacherClassPage /></RequireRole>} />
