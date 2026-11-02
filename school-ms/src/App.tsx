@@ -54,6 +54,9 @@ const CommunicationSettingsPage = lazy(() => import('./pages/communication/Commu
 const PrivacyPolicyPage = lazy(() => import('./pages/legal/PrivacyPolicy'));
 const TermsAndConditionsPage = lazy(() => import('./pages/legal/TermsAndConditions'));
 
+// public report cards
+const PublicReportCardPage = lazy(() => import('./pages/public/PublicReportCard'));
+
 export function App() {
   return (
     <Suspense fallback={<div className="center-page"><Spinner /></div>}>
@@ -63,6 +66,8 @@ export function App() {
         <Route path="/set-password" element={<SetPasswordPage />} />
         <Route path="/privacy" element={<PrivacyPolicyPage />} />
         <Route path="/terms" element={<TermsAndConditionsPage />} />
+        <Route path="/report-card/:shareId" element={<PublicReportCardPage />} />
+        <Route path="/report/:shareId" element={<PublicReportCardPage />} />
 
         <Route element={<RequireAuth><Layout /></RequireAuth>}>
           <Route index element={<RoleHome />} />

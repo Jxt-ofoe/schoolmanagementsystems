@@ -13,6 +13,7 @@ import {
   generateReportCardPdf,
   downloadPdfBlob,
   executeManualWhatsAppShare,
+  buildReportCardShareMessage,
 } from '../../lib/reportPdf';
 import type { Student, TerminalReport, WhatsAppReportShare } from '../../lib/types';
 import {
@@ -238,7 +239,14 @@ export default function WhatsAppSharePage() {
     setSinglePhone(cleanPhone);
     const schoolName = schoolQuery.data?.name || 'School';
     const studentFullName = `${student.first_name} ${student.last_name}`;
-    const defaultMsg = `Dear ${student.guardian_name || 'Parent'}, the examination report card for ${studentFullName} (${classLabel(selectedClass)}) is ready. Please find the attached official terminal report card. Thank you. — ${schoolName}`;
+    const sh = sharesByStudentId.get(student.id);
+    const defaultMsg = buildReportCardShareMessage({
+      parentName: student.guardian_name || 'Parent',
+      studentName: studentFullName,
+      className: classLabel(selectedClass),
+      schoolName,
+      shareId: sh?.id,
+    });
     setSingleMessage(defaultMsg);
   };
 
@@ -252,18 +260,10 @@ export default function WhatsAppSharePage() {
     const studentFullName = `${student.first_name} ${student.last_name}`;
 
     try {
-      // 1. Generate & download PDF & open WhatsApp
-      await executeManualWhatsAppShare({
-        element: reportCardRef.current,
-        parentPhone: singlePhone,
-        studentName: studentFullName,
-        schoolName,
-        customMessage: singleMessage,
-      });
-
-      // 2. Record share status as whatsapp_opened (non-fatal if DB migration is pending)
+      // 1. Ensure share record is saved in database to obtain shareId
+      let shareId = sharesByStudentId.get(student.id)?.id;
       try {
-        await upsertShareMutation.mutateAsync({
+        const saved = await upsertShareMutation.mutateAsync({
           studentId: student.id,
           terminalReportId: rep?.id,
           parentName: student.guardian_name || 'Parent/Guardian',
@@ -272,11 +272,24 @@ export default function WhatsAppSharePage() {
           status: 'whatsapp_opened',
           notes: 'WhatsApp launched via single share modal',
         });
+        if (saved?.id) {
+          shareId = saved.id;
+        }
       } catch (logErr) {
         console.warn('Could not record WhatsApp share to database:', logErr);
       }
 
-      toast(`WhatsApp opened for ${studentFullName}'s parent! Attach the downloaded PDF and click Send.`);
+      // 2. Generate & download PDF & open WhatsApp with link embedded
+      await executeManualWhatsAppShare({
+        element: reportCardRef.current,
+        parentPhone: singlePhone,
+        studentName: studentFullName,
+        schoolName,
+        customMessage: singleMessage,
+        shareId,
+      });
+
+      toast(`WhatsApp opened for ${studentFullName}'s parent with live PDF link!`);
     } catch (err: any) {
       toast(`Sharing issue: ${err.message || 'Could not complete sharing'}`, 'error');
     } finally {
@@ -316,7 +329,14 @@ export default function WhatsAppSharePage() {
     const firstStu = bulkSelectedStudents[0];
     setActiveRenderStudentId(firstStu.id);
     const schoolName = schoolQuery.data?.name || 'School';
-    const defaultMsg = `Dear ${firstStu.guardian_name || 'Parent'}, the examination report card for ${firstStu.first_name} ${firstStu.last_name} (${classLabel(selectedClass)}) is ready. Please find the attached official terminal report card. Thank you. — ${schoolName}`;
+    const firstShare = sharesByStudentId.get(firstStu.id);
+    const defaultMsg = buildReportCardShareMessage({
+      parentName: firstStu.guardian_name || 'Parent',
+      studentName: `${firstStu.first_name} ${firstStu.last_name}`,
+      className: classLabel(selectedClass),
+      schoolName,
+      shareId: firstShare?.id,
+    });
     setBulkMessageText(defaultMsg);
     setBulkQueueOpen(true);
   };
@@ -330,7 +350,14 @@ export default function WhatsAppSharePage() {
     const stu = bulkSelectedStudents[newIndex];
     setActiveRenderStudentId(stu.id);
     const schoolName = schoolQuery.data?.name || 'School';
-    const msg = `Dear ${stu.guardian_name || 'Parent'}, the examination report card for ${stu.first_name} ${stu.last_name} (${classLabel(selectedClass)}) is ready. Please find the attached official terminal report card. Thank you. — ${schoolName}`;
+    const sh = sharesByStudentId.get(stu.id);
+    const msg = buildReportCardShareMessage({
+      parentName: stu.guardian_name || 'Parent',
+      studentName: `${stu.first_name} ${stu.last_name}`,
+      className: classLabel(selectedClass),
+      schoolName,
+      shareId: sh?.id,
+    });
     setBulkMessageText(msg);
   };
 
@@ -373,13 +400,11 @@ export default function WhatsAppSharePage() {
       toast(`Guardian phone "${phone}" is not a valid WhatsApp number. Please check phone format.`, 'error');
       return;
     }
-    const link = createWhatsAppLink(cleanPhone, bulkMessageText);
-    setBulkQueueStatus((prev) => ({ ...prev, [currentQueueStudent.id]: 'whatsapp_opened' }));
-    
-    // Attempt DB logging non-fatally
+
+    let shareId = sharesByStudentId.get(currentQueueStudent.id)?.id;
     try {
       const rep = reportsByStudentId.get(currentQueueStudent.id);
-      await upsertShareMutation.mutateAsync({
+      const saved = await upsertShareMutation.mutateAsync({
         studentId: currentQueueStudent.id,
         terminalReportId: rep?.id,
         parentName: currentQueueStudent.guardian_name || 'Parent',
@@ -387,9 +412,23 @@ export default function WhatsAppSharePage() {
         message: bulkMessageText,
         status: 'whatsapp_opened',
       });
+      if (saved?.id) {
+        shareId = saved.id;
+      }
     } catch (logErr) {
       console.warn('Could not record whatsapp_opened status to database:', logErr);
     }
+
+    let msgToSend = bulkMessageText;
+    if (shareId && typeof window !== 'undefined') {
+      const liveUrl = `${window.location.origin}/report-card/${shareId}`;
+      if (!msgToSend.includes(liveUrl)) {
+        msgToSend += `\n\n📄 View & Download Official Report Card (PDF):\n${liveUrl}`;
+      }
+    }
+
+    const link = createWhatsAppLink(cleanPhone, msgToSend);
+    setBulkQueueStatus((prev) => ({ ...prev, [currentQueueStudent.id]: 'whatsapp_opened' }));
     window.open(link, '_blank', 'noopener,noreferrer');
   };
 
@@ -670,7 +709,7 @@ export default function WhatsAppSharePage() {
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <Alert tone="info">
-              <strong>Manual Sharing Instructions:</strong> Clicking below will generate & download the student's individual report card PDF to your device, and open WhatsApp with the parent's phone number. Simply attach the downloaded PDF and press Send.
+              <strong>Direct PDF Link Included:</strong> The message below contains the official online link where the parent can tap to instantly view and download their child's official PDF report card. A copy of the PDF will also be saved to your device if you wish to attach it via 📎 in WhatsApp.
             </Alert>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
@@ -823,7 +862,7 @@ export default function WhatsAppSharePage() {
             </div>
 
             <div style={{ fontSize: '0.82rem', color: 'var(--muted)' }}>
-              Step 1 downloads the student's individual PDF. Step 2 opens WhatsApp with the parent's phone and prepared text. Once you hit send in WhatsApp, click "Mark as Sent & Next Student" to advance.
+              Step 1 downloads the student's individual PDF. Step 2 opens WhatsApp with the parent's phone and prepared text containing the direct PDF download link. Once you hit send in WhatsApp, click "Mark as Sent & Next Student" to advance.
             </div>
           </div>
         </Modal>

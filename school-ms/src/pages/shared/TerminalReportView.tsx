@@ -8,7 +8,7 @@ import { classLabel, formatDate, todayISO } from '../../lib/format';
 import { friendlyError } from '../../lib/errors';
 import { useToast } from '../../lib/toast';
 import { computePositions, formatPosition, gradeFor } from '../../lib/grades';
-import { formatWhatsAppNumber, executeManualWhatsAppShare } from '../../lib/reportPdf';
+import { formatWhatsAppNumber, executeManualWhatsAppShare, buildReportCardShareMessage } from '../../lib/reportPdf';
 import type { SchoolGradingConfig, Student, TerminalReport, WhatsAppReportShare } from '../../lib/types';
 import {
   Alert,
@@ -385,7 +385,14 @@ export default function TerminalReportViewPage() {
                 variant="secondary"
                 onClick={() => {
                   setParentPhone(formatWhatsAppNumber(student.guardian_phone) || student.guardian_phone || '');
-                  const defaultMsg = `Dear ${student.guardian_name || 'Parent'}, the examination report card for ${student.first_name} ${student.last_name} is ready. Please find the attached official terminal report card. Thank you. — ${school?.name || 'School'}`;
+                  const shareId = shareQuery.data?.id;
+                  const defaultMsg = buildReportCardShareMessage({
+                    parentName: student.guardian_name || 'Parent',
+                    studentName: `${student.first_name} ${student.last_name}`,
+                    className: classLabel(studentClass),
+                    schoolName: school?.name || 'School',
+                    shareId,
+                  });
                   setShareMessage(defaultMsg);
                   setShareModalOpen(true);
                 }}
@@ -656,19 +663,25 @@ export default function TerminalReportViewPage() {
                   if (!reportContainerRef.current) return;
                   setIsSharing(true);
                   try {
+                    let shareId = shareQuery.data?.id;
+                    try {
+                      const upserted = await upsertShareMutation.mutateAsync({ status: 'whatsapp_opened' });
+                      if (upserted?.id) {
+                        shareId = upserted.id;
+                      }
+                    } catch (logErr) {
+                      console.warn('Could not record WhatsApp share to database:', logErr);
+                    }
+
                     await executeManualWhatsAppShare({
                       element: reportContainerRef.current,
                       parentPhone,
                       studentName: `${student.first_name} ${student.last_name}`,
                       schoolName: school?.name || 'School',
                       customMessage: shareMessage,
+                      shareId,
                     });
-                    try {
-                      await upsertShareMutation.mutateAsync({ status: 'whatsapp_opened' });
-                    } catch (logErr) {
-                      console.warn('Could not record WhatsApp share to database:', logErr);
-                    }
-                    toast('PDF downloaded and WhatsApp opened! Attach the PDF and send to parent.');
+                    toast('PDF downloaded and WhatsApp opened with live report card link!');
                   } catch (err: any) {
                     toast(friendlyError(err), 'error');
                   } finally {
@@ -684,7 +697,7 @@ export default function TerminalReportViewPage() {
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <Alert tone="info">
-            <strong>Manual Sharing Workflow:</strong> The official report card will be converted to a high-resolution A4 PDF and downloaded to your device. WhatsApp will then open with the parent's phone number and prepared message, ready for you to attach the downloaded PDF.
+            <strong>Direct PDF Link Included:</strong> The message below contains the official online link where the parent can tap to instantly view and download their child's official PDF report card. A copy of the PDF will also be saved to your device if you wish to attach it via 📎 in WhatsApp.
           </Alert>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>

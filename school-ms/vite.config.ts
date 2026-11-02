@@ -90,17 +90,39 @@ function adminApiPlugin() {
     }
   };
 
+  const reportViewHandler = async (req: any, res: any) => {
+    if (req.method === 'GET') {
+      try {
+        const url = new URL(req.url, 'http://localhost');
+        const shareId = url.searchParams.get('id') || url.searchParams.get('shareId');
+        const { handleReportView } = await import('./api/report/view.js');
+        const result = await handleReportView(shareId);
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify(result));
+      } catch (err: any) {
+        res.statusCode = 400;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: err.message || 'Failed to load report card' }));
+      }
+      return;
+    }
+    res.statusCode = 405;
+    res.end(JSON.stringify({ error: 'Method not allowed' }));
+  };
+
   return {
     name: 'admin-api-plugin',
     configureServer(server: any) {
       server.middlewares.use('/api/staff/create', handler);
       server.middlewares.use('/api/school/logo', logoHandler);
       server.middlewares.use('/api/communication/send-sms', smsHandler);
+      server.middlewares.use('/api/report/view', reportViewHandler);
     },
     configurePreviewServer(server: any) {
       server.middlewares.use('/api/staff/create', handler);
       server.middlewares.use('/api/school/logo', logoHandler);
       server.middlewares.use('/api/communication/send-sms', smsHandler);
+      server.middlewares.use('/api/report/view', reportViewHandler);
     },
   };
 }

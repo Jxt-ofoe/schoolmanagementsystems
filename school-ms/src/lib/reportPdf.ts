@@ -86,9 +86,38 @@ export function downloadPdfBlob(blob: Blob, filename: string): void {
 }
 
 /**
+ * Formats standard parent message containing the live official report card link.
+ */
+export function buildReportCardShareMessage({
+  parentName,
+  studentName,
+  className,
+  schoolName,
+  shareId,
+  reportUrl,
+}: {
+  parentName?: string;
+  studentName: string;
+  className?: string;
+  schoolName: string;
+  shareId?: string;
+  reportUrl?: string;
+}): string {
+  const url = reportUrl || (shareId && typeof window !== 'undefined' ? `${window.location.origin}/report-card/${shareId}` : '');
+  const pName = parentName?.trim() ? `Dear ${parentName.trim()}, ` : 'Dear Parent, ';
+  const classPart = className?.trim() ? ` (${className.trim()})` : '';
+  let msg = `${pName}the examination report card for ${studentName}${classPart} is ready.`;
+  if (url) {
+    msg += `\n\n📄 View & Download Official Report Card (PDF):\n${url}`;
+  }
+  msg += `\n\nThank you. — ${schoolName}`;
+  return msg;
+}
+
+/**
  * Executes the manual WhatsApp sharing workflow:
  * 1. Downloads the PDF to teacher's device
- * 2. Opens WhatsApp link in a new tab/app with pre-filled parent message
+ * 2. Opens WhatsApp link in a new tab/app with pre-filled parent message containing direct PDF link
  * 3. Supports mobile Web Share API with file attachment if supported
  */
 export async function executeManualWhatsAppShare({
@@ -97,6 +126,8 @@ export async function executeManualWhatsAppShare({
   studentName,
   schoolName,
   customMessage,
+  shareId,
+  reportUrl,
   onStatusChange,
 }: {
   element: HTMLElement;
@@ -104,6 +135,8 @@ export async function executeManualWhatsAppShare({
   studentName: string;
   schoolName: string;
   customMessage?: string;
+  shareId?: string;
+  reportUrl?: string;
   onStatusChange?: (status: 'generating' | 'downloaded' | 'opened') => void;
 }): Promise<void> {
   onStatusChange?.('generating');
@@ -112,8 +145,20 @@ export async function executeManualWhatsAppShare({
   const { blob } = await generateReportCardPdf(element, cleanFilename);
   onStatusChange?.('downloaded');
 
-  const defaultMsg = `Dear Parent, the official examination report card for ${studentName} is ready. Please find the attached PDF report card from ${schoolName}. Thank you.`;
-  const messageToSend = customMessage?.trim() || defaultMsg;
+  const defaultMsg = buildReportCardShareMessage({
+    studentName,
+    schoolName,
+    shareId,
+    reportUrl,
+  });
+
+  let messageToSend = customMessage?.trim() || defaultMsg;
+
+  // If a shareId or reportUrl exists and customMessage did not include it, append it
+  const liveUrl = reportUrl || (shareId && typeof window !== 'undefined' ? `${window.location.origin}/report-card/${shareId}` : '');
+  if (liveUrl && !messageToSend.includes(liveUrl)) {
+    messageToSend += `\n\n📄 View & Download Official Report Card (PDF):\n${liveUrl}`;
+  }
 
   // Try Web Share API (native mobile sharing with file support)
   if (navigator.canShare && navigator.canShare({ files: [new File([blob], cleanFilename, { type: 'application/pdf' })] })) {
