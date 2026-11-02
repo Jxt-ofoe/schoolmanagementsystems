@@ -9,7 +9,7 @@ import { formatDate, formatMoney, humanize } from '../../lib/format';
 import { useToast } from '../../lib/toast';
 import { invokeInvite } from '../school/Teachers';
 import type { BillingOverview } from '../../lib/types';
-import { Alert, Badge, Button, Card, ConfirmDialog, EmptyState, ErrorBox, Input, Modal, PageHeader, Spinner, StatCard } from '../../components/ui';
+import { Alert, Badge, Button, Card, ConfirmDialog, EmptyState, ErrorBox, Input, Modal, PageHeader, Select, Spinner, StatCard, Textarea } from '../../components/ui';
 
 interface School { id: string; name: string; code: string; status: string; email: string | null; phone: string | null; address: string | null; region: string | null; logo_url?: string | null; created_at: string }
 interface Member { id: string; user_id: string; role: string; status: string; profiles: { full_name: string; email: string | null } | null }
@@ -27,15 +27,19 @@ export default function AdminSchoolDetail() {
     queryKey: ['admin_members', schoolId],
     queryFn: () => unwrap<Member[]>(supabase.from('school_memberships').select('id, user_id, role, status, profiles(full_name, email)').eq('school_id', schoolId!).order('role')),
   });
-  const semesters = useQuery({
-    queryKey: ['admin_semesters', schoolId],
-    queryFn: () => unwrap<{ id: string; name: string; is_current: boolean; starts_on: string; ends_on: string; academic_years: { name: string } | null }[]>(
-      supabase.from('semesters').select('id, name, is_current, starts_on, ends_on, academic_years(name)').eq('school_id', schoolId!).order('starts_on', { ascending: false })),
-  });
   const bills = useQuery({
     queryKey: ['admin_bills', schoolId],
-    queryFn: () => unwrap<BillingOverview[]>(supabase.from('billing_overview').select('*').eq('school_id', schoolId!)),
+    queryFn: () => unwrap<BillingOverview[]>(supabase.from('billing_overview').select('*').eq('school_id', schoolId!).order('created_at', { ascending: false })),
   });
+  const billingConfig = useQuery({
+    queryKey: ['admin_school_billing_config', schoolId],
+    queryFn: () => unwrap<any>(supabase.from('school_billing_configs').select('*').eq('school_id', schoolId!).maybeSingle()),
+  });
+  const cardAuth = useQuery({
+    queryKey: ['admin_school_card_auth', schoolId],
+    queryFn: () => unwrap<any>(supabase.from('payment_authorizations').select('*').eq('school_id', schoolId!).maybeSingle()),
+  });
+  const [configuringBilling, setConfiguringBilling] = useState(false);
   const summary = useQuery({
     queryKey: ['platform_schools'],
     queryFn: () => unwrap<{ school_id: string; students_active: number; teachers: number; registered_current: number }[]>(supabase.rpc('platform_school_summaries')),
@@ -55,42 +59,10 @@ export default function AdminSchoolDetail() {
     onSuccess: () => { toast('Access updated'); setMemberToggle(null); qc.invalidateQueries({ queryKey: ['admin_members'] }); },
     onError: (e) => { toast(friendlyError(e), 'error'); setMemberToggle(null); },
   });
-  const generate = useMutation({
-    mutationFn: async (semesterId: string) => {
-      const { data: students } = await supabase
-        .from('students')
-        .select('id, school_id, current_class_id')
-        .eq('school_id', schoolId!)
-        .eq('enrollment_status', 'active')
-        .not('current_class_id', 'is', null);
-
-      if (students && students.length > 0) {
-        const enrollments = students.map((st) => ({
-          school_id: st.school_id,
-          student_id: st.id,
-          semester_id: semesterId,
-          class_id: st.current_class_id,
-          status: 'registered',
-        }));
-        await supabase
-          .from('student_enrollments')
-          .upsert(enrollments, { onConflict: 'student_id, semester_id' });
-      }
-
-      return unwrap(supabase.rpc('upsert_semester_billing', { p_semester_id: semesterId }));
-    },
-    onSuccess: () => {
-      toast('Billing generated / refreshed');
-      qc.invalidateQueries({ queryKey: ['admin_bills'] });
-      qc.invalidateQueries({ queryKey: ['platform_schools'] });
-    },
-    onError: (e) => toast(friendlyError(e), 'error'),
-  });
 
   if (school.isLoading) return <Spinner />;
   if (school.error) return <ErrorBox error={school.error} />;
   const s = school.data!;
-  const billFor = (semId: string) => bills.data?.find((b) => b.semester_id === semId);
 
   const hasHeadmaster = members.data?.some((m) => m.role === 'headmaster');
 
@@ -148,23 +120,138 @@ export default function AdminSchoolDetail() {
             </p>
           )}
         </Card>
-        <Card title="Semesters & billing" padded={false}>
-          {semesters.isLoading ? <Spinner /> : !semesters.data?.length ? <EmptyState title="No semesters yet">The headmaster sets up the academic calendar.</EmptyState> : (
-            <div className="table-wrap"><table>
-              <thead><tr><th>Semester</th><th className="num">Due</th><th>Status</th><th></th></tr></thead>
-              <tbody>{semesters.data.map((x) => {
-                const b = billFor(x.id);
-                return (
-                  <tr key={x.id}><td>{x.academic_years?.name} · {x.name} {x.is_current && <Badge tone="good">Current</Badge>}</td>
-                    <td className="num">{b ? `${b.student_count} × ${formatMoney(b.price_per_student)} = ${formatMoney(b.amount_due)}` : '—'}</td>
-                    <td>{b ? <Badge value={b.payment_status} /> : <span className="muted small">Not billed</span>}</td>
-                    <td className="right"><Button size="sm" variant="secondary" onClick={() => generate.mutate(x.id)} loading={generate.isPending && generate.variables === x.id}>{b ? 'Recalculate' : 'Generate'}</Button></td></tr>);
-              })}</tbody>
-            </table></div>
-          )}
-          <p className="muted small" style={{ padding: '0 16px 12px' }}>Record payments on the <Link to="/admin/billing">Billing</Link> page.</p>
+        <Card
+          title="Billing arrangement & subscription"
+          padded={false}
+          actions={
+            <Button size="sm" onClick={() => setConfiguringBilling(true)}>
+              Configure Arrangement
+            </Button>
+          }
+        >
+          <div style={{ padding: '16px' }}>
+            <div className="grid-2" style={{ gap: 12 }}>
+              <div className="kv">
+                <span>Pricing Rate:</span>
+                <strong style={{ color: 'var(--primary)', fontSize: '1.05rem' }}>
+                  {formatMoney(billingConfig.data?.price_per_student ?? 5.0)} / student
+                </strong>
+              </div>
+              <div className="kv">
+                <span>Billing Frequency:</span>
+                <Badge
+                  value={billingConfig.data?.billing_frequency === 'monthly' ? 'Monthly' : 'Semester'}
+                  tone="info"
+                />
+              </div>
+              <div className="kv">
+                <span>Subscription Status:</span>
+                <Badge
+                  value={billingConfig.data?.status || 'active'}
+                  tone={
+                    (billingConfig.data?.status || 'active') === 'active'
+                      ? 'good'
+                      : billingConfig.data?.status === 'grace_period'
+                      ? 'warn'
+                      : 'bad'
+                  }
+                />
+              </div>
+              <div className="kv">
+                <span>Next Billing Date:</span>
+                <strong>{formatDate(billingConfig.data?.next_billing_date) || '—'}</strong>
+              </div>
+              <div className="kv">
+                <span>Payment Terms:</span>
+                <span>
+                  {billingConfig.data?.due_days ?? 14} days due · {billingConfig.data?.grace_period_days ?? 7} days grace
+                </span>
+              </div>
+              <div className="kv">
+                <span>Fee Markup (3%):</span>
+                <span>
+                  {billingConfig.data?.pass_fee_markup !== false
+                    ? `${billingConfig.data?.fee_markup_percent ?? 3}% Passed to school`
+                    : 'Absorbed'}
+                </span>
+              </div>
+              <div className="kv">
+                <span>Special Discount:</span>
+                <span>
+                  {billingConfig.data?.discount_type === 'percentage'
+                    ? `${billingConfig.data?.discount_value}% off`
+                    : billingConfig.data?.discount_type === 'fixed'
+                    ? `GH₵ ${billingConfig.data?.discount_value} off`
+                    : 'None'}
+                </span>
+              </div>
+              <div className="kv">
+                <span>Saved Card for Recurring:</span>
+                <span>
+                  {cardAuth.data
+                    ? `💳 ${cardAuth.data.card_type?.toUpperCase()} •••• ${cardAuth.data.last4} (${cardAuth.data.bank || 'Bank'})`
+                    : 'No card on file'}
+                </span>
+              </div>
+            </div>
+          </div>
+          <div style={{ borderTop: '1px solid var(--border)', padding: '12px 16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <strong>Invoices & Payments ({bills.data?.length ?? 0})</strong>
+              <Link to="/admin/billing" className="small">
+                Manage all on Billing Page →
+              </Link>
+            </div>
+            {bills.isLoading ? (
+              <Spinner />
+            ) : !bills.data?.length ? (
+              <EmptyState title="No invoices issued yet" />
+            ) : (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Period</th>
+                      <th className="num">Students</th>
+                      <th className="num">Due</th>
+                      <th className="num">Paid</th>
+                      <th className="num">Balance</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bills.data.map((b) => (
+                      <tr key={b.id}>
+                        <td>{b.period_label || b.semester_name || 'Invoice'}</td>
+                        <td className="num">{b.student_count}</td>
+                        <td className="num">{formatMoney(b.total_payable ?? b.amount_due)}</td>
+                        <td className="num">{formatMoney(b.amount_paid)}</td>
+                        <td className="num">
+                          <strong style={{ color: b.balance > 0 ? 'var(--warn)' : 'var(--green)' }}>
+                            {formatMoney(b.balance)}
+                          </strong>
+                        </td>
+                        <td>
+                          <Badge value={b.payment_status} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </Card>
       </div>
+
+      {configuringBilling && (
+        <SchoolBillingConfigModal
+          schoolId={s.id}
+          schoolName={s.name}
+          initialConfig={billingConfig.data}
+          onClose={() => setConfiguringBilling(false)}
+        />
+      )}
       {inviting && <SetHeadmasterModal schoolId={s.id} schoolName={s.name} onClose={() => setInviting(false)} />}
       <ConfirmDialog open={!!statusTo} danger={statusTo !== 'active'} loading={setStatus.isPending}
         title={`${statusTo === 'active' ? 'Activate' : statusTo === 'suspended' ? 'Suspend' : 'Deactivate'} school`}
@@ -252,6 +339,209 @@ function SetHeadmasterModal({ schoolId, schoolName, onClose }: { schoolId: strin
           The headmaster will log in with these credentials to manage classes, teachers, and students.
         </p>
       </form>
+    </Modal>
+  );
+}
+
+function SchoolBillingConfigModal({
+  schoolId,
+  schoolName,
+  initialConfig,
+  onClose,
+}: {
+  schoolId: string;
+  schoolName: string;
+  initialConfig?: any;
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const toast = useToast();
+
+  const [price, setPrice] = useState(String(initialConfig?.price_per_student ?? 5.0));
+  const [frequency, setFrequency] = useState<'monthly' | 'semester'>(initialConfig?.billing_frequency ?? 'semester');
+  const [startDate, setStartDate] = useState(initialConfig?.billing_start_date ?? new Date().toISOString().slice(0, 10));
+  const [nextDate, setNextDate] = useState(initialConfig?.next_billing_date ?? '');
+  const [dueDays, setDueDays] = useState(String(initialConfig?.due_days ?? 14));
+  const [graceDays, setGraceDays] = useState(String(initialConfig?.grace_period_days ?? 7));
+  const [discountType, setDiscountType] = useState<'none' | 'fixed' | 'percentage'>(initialConfig?.discount_type ?? 'none');
+  const [discountValue, setDiscountValue] = useState(String(initialConfig?.discount_value ?? 0));
+  const [passMarkup, setPassMarkup] = useState(initialConfig?.pass_fee_markup !== false);
+  const [markupPercent, setMarkupPercent] = useState(String(initialConfig?.fee_markup_percent ?? 3.0));
+  const [autoCharge, setAutoCharge] = useState(initialConfig?.auto_charge_card ?? false);
+  const [status, setStatus] = useState(initialConfig?.status ?? 'active');
+  const [notes, setNotes] = useState(initialConfig?.notes ?? '');
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const p = Number(price);
+      if (Number.isNaN(p) || p < 0) throw new Error('Enter a valid price per student');
+
+      const { error } = await supabase.rpc('upsert_school_billing_config', {
+        p_school_id: schoolId,
+        p_price_per_student: p,
+        p_billing_frequency: frequency,
+        p_billing_start_date: startDate,
+        p_next_billing_date: nextDate || null,
+        p_due_days: Number(dueDays) || 14,
+        p_grace_period_days: Number(graceDays) || 7,
+        p_discount_type: discountType,
+        p_discount_value: Number(discountValue) || 0,
+        p_pass_fee_markup: passMarkup,
+        p_fee_markup_percent: Number(markupPercent) || 3.0,
+        p_auto_charge_card: autoCharge,
+        p_status: status,
+        p_notes: notes || null,
+      });
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast('School billing arrangement updated successfully');
+      qc.invalidateQueries({ queryKey: ['admin_school_billing_config', schoolId] });
+      qc.invalidateQueries({ queryKey: ['admin_bills', schoolId] });
+      qc.invalidateQueries({ queryKey: ['admin_billing'] });
+      onClose();
+    },
+    onError: (e) => toast(friendlyError(e), 'error'),
+  });
+
+  return (
+    <Modal
+      open
+      wide
+      title={`Configure Billing Arrangement · ${schoolName}`}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={() => save.mutate()} loading={save.isPending}>
+            Save Billing Arrangement
+          </Button>
+        </>
+      }
+    >
+      {save.error && <Alert tone="error">{friendlyError(save.error)}</Alert>}
+
+      <div className="form-grid">
+        <Input
+          label="Price per student (GH₵)"
+          type="number"
+          step="0.01"
+          min="0"
+          value={price}
+          onChange={(e) => setPrice(e.target.value)}
+          hint="Independent price for this specific school (e.g. GH₵3, GH₵4, GH₵5)"
+          required
+        />
+        <Select
+          label="Billing Frequency"
+          value={frequency}
+          onChange={(e) => setFrequency(e.target.value as any)}
+        >
+          <option value="semester">Semester Billing</option>
+          <option value="monthly">Monthly Billing</option>
+        </Select>
+        <Input
+          label="Billing Start Date"
+          type="date"
+          value={startDate}
+          onChange={(e) => setStartDate(e.target.value)}
+        />
+        <Input
+          label="Next Billing Date"
+          type="date"
+          value={nextDate}
+          onChange={(e) => setNextDate(e.target.value)}
+        />
+        <Input
+          label="Payment Deadline (Days)"
+          type="number"
+          min="1"
+          value={dueDays}
+          onChange={(e) => setDueDays(e.target.value)}
+        />
+        <Input
+          label="Grace Period (Days)"
+          type="number"
+          min="0"
+          value={graceDays}
+          onChange={(e) => setGraceDays(e.target.value)}
+        />
+        <Select
+          label="Special Discount"
+          value={discountType}
+          onChange={(e) => setDiscountType(e.target.value as any)}
+        >
+          <option value="none">No Discount</option>
+          <option value="percentage">Percentage (%) Discount</option>
+          <option value="fixed">Fixed Amount (GH₵) Discount</option>
+        </Select>
+        {discountType !== 'none' && (
+          <Input
+            label={discountType === 'percentage' ? 'Discount Percentage (%)' : 'Discount Amount (GH₵)'}
+            type="number"
+            step="0.01"
+            min="0"
+            value={discountValue}
+            onChange={(e) => setDiscountValue(e.target.value)}
+          />
+        )}
+      </div>
+
+      <div style={{ marginTop: 16 }} className="form-grid">
+        <Select
+          label="Subscription Status"
+          value={status}
+          onChange={(e) => setStatus(e.target.value as any)}
+        >
+          <option value="active">Active</option>
+          <option value="payment_pending">Payment Pending</option>
+          <option value="payment_overdue">Payment Overdue</option>
+          <option value="grace_period">Grace Period</option>
+          <option value="suspended">Suspended (Access blocked; records preserved)</option>
+          <option value="cancelled">Cancelled</option>
+        </Select>
+        <Input
+          label="Payment Fee Markup (%)"
+          type="number"
+          step="0.1"
+          min="0"
+          value={markupPercent}
+          onChange={(e) => setMarkupPercent(e.target.value)}
+          hint="Official 3% payment processing markup"
+        />
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+        <label className="checkbox" style={{ display: 'block', marginBottom: 8 }}>
+          <input
+            type="checkbox"
+            checked={passMarkup}
+            onChange={(e) => setPassMarkup(e.target.checked)}
+          />
+          <strong>Pass 3% Paystack payment fee to school</strong> (Itemized clearly on checkout)
+        </label>
+        {frequency === 'monthly' && (
+          <label className="checkbox" style={{ display: 'block' }}>
+            <input
+              type="checkbox"
+              checked={autoCharge}
+              onChange={(e) => setAutoCharge(e.target.checked)}
+            />
+            <strong>Authorize automatic monthly card charge</strong> (Requires saved card authorization)
+          </label>
+        )}
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+        <Textarea
+          label="Billing Notes / Special Agreement"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+        />
+      </div>
     </Modal>
   );
 }

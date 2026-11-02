@@ -110,6 +110,125 @@ function adminApiPlugin() {
     res.end(JSON.stringify({ error: 'Method not allowed' }));
   };
 
+  const paystackInitHandler = async (req: any, res: any) => {
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', (chunk: any) => { body += chunk; });
+      req.on('end', async () => {
+        try {
+          const data = JSON.parse(body);
+          const authHeader = req.headers['authorization'];
+          const { handlePaystackInit } = await import('./api/billing/paystack-init.js');
+          const result = await handlePaystackInit(data, authHeader);
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify(result));
+        } catch (err: any) {
+          res.statusCode = 400;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: err.message || 'Failed to init Paystack checkout' }));
+        }
+      });
+    } else {
+      res.statusCode = 405;
+      res.end(JSON.stringify({ error: 'Method not allowed' }));
+    }
+  };
+
+  const paystackVerifyHandler = async (req: any, res: any) => {
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', (chunk: any) => { body += chunk; });
+      req.on('end', async () => {
+        try {
+          const data = JSON.parse(body);
+          const authHeader = req.headers['authorization'];
+          const { handlePaystackVerify } = await import('./api/billing/paystack-verify.js');
+          const result = await handlePaystackVerify(data, authHeader);
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify(result));
+        } catch (err: any) {
+          res.statusCode = 400;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: err.message || 'Payment verification failed' }));
+        }
+      });
+    } else {
+      res.statusCode = 405;
+      res.end(JSON.stringify({ error: 'Method not allowed' }));
+    }
+  };
+
+  const paystackWebhookHandler = async (req: any, res: any) => {
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', (chunk: any) => { body += chunk; });
+      req.on('end', async () => {
+        try {
+          const sig = req.headers['x-paystack-signature'];
+          const { handlePaystackWebhook } = await import('./api/billing/paystack-webhook.js');
+          const result = await handlePaystackWebhook(body, sig);
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify(result));
+        } catch (err: any) {
+          res.statusCode = 400;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: err.message || 'Webhook failed' }));
+        }
+      });
+    } else {
+      res.statusCode = 405;
+      res.end(JSON.stringify({ error: 'Method not allowed' }));
+    }
+  };
+
+  const chargeRecurringHandler = async (req: any, res: any) => {
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', (chunk: any) => { body += chunk; });
+      req.on('end', async () => {
+        try {
+          const data = JSON.parse(body);
+          const authHeader = req.headers['authorization'];
+          const { handleChargeRecurring } = await import('./api/billing/charge-recurring.js');
+          const result = await handleChargeRecurring(data, authHeader);
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify(result));
+        } catch (err: any) {
+          res.statusCode = 400;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: err.message || 'Recurring charge failed' }));
+        }
+      });
+    } else {
+      res.statusCode = 405;
+      res.end(JSON.stringify({ error: 'Method not allowed' }));
+    }
+  };
+
+  const sendReminderHandler = async (req: any, res: any) => {
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', (chunk: any) => { body += chunk; });
+      req.on('end', async () => {
+        try {
+          const data = JSON.parse(body);
+          const authHeader = req.headers['authorization'];
+          const { handleSendReminder } = await import('./api/billing/send-reminder.js');
+          const result = await handleSendReminder(data, authHeader);
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify(result));
+        } catch (err: any) {
+          res.statusCode = 400;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: err.message || 'Failed to dispatch reminder' }));
+        }
+      });
+    } else {
+      res.statusCode = 405;
+      res.end(JSON.stringify({ error: 'Method not allowed' }));
+    }
+  };
+
   return {
     name: 'admin-api-plugin',
     configureServer(server: any) {
@@ -117,12 +236,22 @@ function adminApiPlugin() {
       server.middlewares.use('/api/school/logo', logoHandler);
       server.middlewares.use('/api/communication/send-sms', smsHandler);
       server.middlewares.use('/api/report/view', reportViewHandler);
+      server.middlewares.use('/api/billing/paystack-init', paystackInitHandler);
+      server.middlewares.use('/api/billing/paystack-verify', paystackVerifyHandler);
+      server.middlewares.use('/api/billing/paystack-webhook', paystackWebhookHandler);
+      server.middlewares.use('/api/billing/charge-recurring', chargeRecurringHandler);
+      server.middlewares.use('/api/billing/send-reminder', sendReminderHandler);
     },
     configurePreviewServer(server: any) {
       server.middlewares.use('/api/staff/create', handler);
       server.middlewares.use('/api/school/logo', logoHandler);
       server.middlewares.use('/api/communication/send-sms', smsHandler);
       server.middlewares.use('/api/report/view', reportViewHandler);
+      server.middlewares.use('/api/billing/paystack-init', paystackInitHandler);
+      server.middlewares.use('/api/billing/paystack-verify', paystackVerifyHandler);
+      server.middlewares.use('/api/billing/paystack-webhook', paystackWebhookHandler);
+      server.middlewares.use('/api/billing/charge-recurring', chargeRecurringHandler);
+      server.middlewares.use('/api/billing/send-reminder', sendReminderHandler);
     },
   };
 }

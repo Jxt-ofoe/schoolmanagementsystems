@@ -118,27 +118,119 @@ export interface GradeBand {
   grade_point: number | null;
 }
 
+export interface SchoolBillingConfig {
+  id: string;
+  school_id: string;
+  pricing_model: 'per_student' | 'flat_rate';
+  price_per_student: number;
+  flat_rate_amount: number;
+  billing_frequency: 'monthly' | 'semester';
+  billing_start_date: string;
+  next_billing_date: string | null;
+  due_days: number;
+  grace_period_days: number;
+  discount_type: 'none' | 'fixed' | 'percentage';
+  discount_value: number;
+  pass_fee_markup: boolean;
+  fee_markup_percent: number;
+  auto_charge_card: boolean;
+  status: 'active' | 'payment_pending' | 'payment_overdue' | 'grace_period' | 'suspended' | 'cancelled';
+  grace_period_end: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface BillingOverview {
   id: string;
   school_id: string;
   school_name: string;
   school_code: string;
   school_status: string;
-  semester_id: string;
-  semester_name: string;
-  academic_year_name: string;
+  config_status?: string | null;
+  billing_frequency?: 'monthly' | 'semester';
+  billing_month?: string | null;
+  period_label?: string | null;
+  semester_id: string | null;
+  semester_name: string | null;
+  academic_year_name: string | null;
   is_current: boolean;
   student_count: number;
   price_per_student: number;
   currency: string;
   amount_due: number;
+  discount_amount?: number;
+  fee_markup_amount?: number;
+  total_payable?: number;
   amount_paid: number;
   balance: number;
   due_date: string | null;
+  grace_period_end?: string | null;
+  invoice_number?: string | null;
   notes: string | null;
   last_calculated_at: string | null;
   payment_status: 'no_charge' | 'unpaid' | 'partial' | 'paid' | 'overpaid';
-  renewal_status: 'not_applicable' | 'renewed' | 'overdue' | 'pending';
+  renewal_status: 'not_applicable' | 'renewed' | 'overdue' | 'pending' | 'suspended';
+}
+
+export interface PaymentAuthorization {
+  id: string;
+  school_id: string;
+  authorization_code: string;
+  card_type: string | null;
+  last4: string | null;
+  exp_month: string | null;
+  exp_year: string | null;
+  bank: string | null;
+  channel: string;
+  reusable: boolean;
+  customer_email: string | null;
+  is_default: boolean;
+  created_at: string;
+}
+
+export interface PaystackTransaction {
+  id: string;
+  school_id: string | null;
+  billing_id: string | null;
+  reference: string;
+  event_type: string;
+  amount: number;
+  currency: string;
+  channel: string | null;
+  status: 'pending' | 'success' | 'failed';
+  gateway_response: string | null;
+  paid_at: string | null;
+  customer_email: string | null;
+  authorization_code: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface BillingReminder {
+  id: string;
+  school_id: string;
+  billing_id: string | null;
+  reminder_type: 'due_soon' | 'due_today' | 'failed' | 'grace_warning' | 'auto_renewal_notice';
+  recipient_phone: string | null;
+  recipient_email: string | null;
+  channel: 'sms' | 'email' | 'in_app';
+  message: string;
+  status: 'sent' | 'failed';
+  sent_at: string;
+}
+
+export interface PlatformBillingMetrics {
+  total_schools: number;
+  active_schools: number;
+  monthly_schools: number;
+  semester_schools: number;
+  total_paid: number;
+  total_due: number;
+  outstanding: number;
+  overdue_schools: number;
+  grace_period_schools: number;
+  suspended_schools: number;
 }
 
 export interface AuditLog {

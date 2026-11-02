@@ -27,15 +27,43 @@ export function paymentStatus(due: number, paid: number): PaymentStatus {
   return 'overpaid';
 }
 
-export function summarize(count: number, price: number, paid: number) {
+export function calculateBreakdown(
+  count: number,
+  pricePerStudent: number,
+  discountType: 'none' | 'fixed' | 'percentage' = 'none',
+  discountValue = 0,
+  passFeeMarkup = true,
+  feeMarkupPercent = 3.0
+) {
+  const subtotal = amountDue(count, pricePerStudent);
+  let discount = 0;
+  if (discountType === 'percentage' && discountValue > 0) {
+    discount = Math.round(subtotal * (discountValue / 100) * 100) / 100;
+  } else if (discountType === 'fixed' && discountValue > 0) {
+    discount = Math.min(subtotal, discountValue);
+  }
+  const netSubtotal = Math.max(0, subtotal - discount);
+  const feeMarkup = passFeeMarkup ? Math.round(netSubtotal * (feeMarkupPercent / 100) * 100) / 100 : 0;
+  const totalPayable = Math.round((netSubtotal + feeMarkup) * 100) / 100;
+  return { subtotal, discount, netSubtotal, feeMarkup, feeMarkupPercent, totalPayable };
+}
+
+export function summarize(count: number, price: number, paid: number, discount = 0, feeMarkup = 0) {
   const due = amountDue(count, price);
+  const net = Math.max(0, due - discount);
+  const total = Math.round((net + feeMarkup) * 100) / 100;
+  const targetDue = (discount > 0 || feeMarkup > 0) ? total : due;
   return {
     count,
     price,
-    due,
+    subtotal: due,
+    due: targetDue,
+    discount,
+    feeMarkup,
+    totalPayable: targetDue,
     paid,
-    balance: (toPesewas(due) - toPesewas(paid)) / 100,
-    status: paymentStatus(due, paid),
+    balance: (toPesewas(targetDue) - toPesewas(paid)) / 100,
+    status: paymentStatus(targetDue, paid),
     formula: `${count} × ${price.toFixed(2)}`,
   };
 }

@@ -163,9 +163,10 @@ export default function RenewalsPage() {
               <thead>
                 <tr>
                   <th>School</th>
-                  <th>Semester Cycle</th>
+                  <th>Frequency</th>
+                  <th>Period Cycle</th>
                   <th className="num">Students</th>
-                  <th className="right">Calculation (GH₵2/stu)</th>
+                  <th className="right">Calculation</th>
                   <th className="right">Due</th>
                   <th className="right">Paid</th>
                   <th className="right">Balance</th>
@@ -184,12 +185,18 @@ export default function RenewalsPage() {
                       <div className="mono muted small">{b.school_code}</div>
                     </td>
                     <td>
-                      {b.academic_year_name} · {b.semester_name}
+                      <Badge
+                        value={b.billing_frequency === 'monthly' ? 'Monthly' : 'Semester'}
+                        tone={b.billing_frequency === 'monthly' ? 'info' : 'good'}
+                      />
+                    </td>
+                    <td>
+                      {b.period_label || `${b.academic_year_name} · ${b.semester_name}`}
                       {b.is_current && <span style={{ marginLeft: 6 }}><Badge tone="info">Current</Badge></span>}
                     </td>
                     <td className="num">{b.student_count}</td>
                     <td className="right nowrap">{b.student_count} × {formatMoney(b.price_per_student)}</td>
-                    <td className="right">{formatMoney(b.amount_due)}</td>
+                    <td className="right"><strong>{formatMoney(b.total_payable ?? b.amount_due)}</strong></td>
                     <td className="right" style={{ color: 'var(--green-700)' }}>{formatMoney(b.amount_paid)}</td>
                     <td className="right">
                       <strong style={{ color: b.balance > 0 ? 'var(--red)' : 'var(--green-700)' }}>

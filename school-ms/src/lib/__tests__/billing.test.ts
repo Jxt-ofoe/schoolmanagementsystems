@@ -1,4 +1,4 @@
-import { amountDue, billableCount, paymentStatus, summarize, type Registration } from '../billing';
+import { amountDue, billableCount, calculateBreakdown, paymentStatus, summarize, type Registration } from '../billing';
 
 describe('billing: unique registered students × configured price', () => {
   it('counts each student once and excludes voided registrations', () => {
@@ -24,4 +24,42 @@ describe('billing: unique registered students × configured price', () => {
     const s = summarize(150, 2, 120.1);
     expect(s).toMatchObject({ count: 150, due: 300, balance: 179.9, status: 'partial', formula: '150 × 2.00' });
   });
+
+  it('supports flexible pricing per school (e.g. GH₵3, GH₵4, GH₵5)', () => {
+    // School A: 500 students @ GH₵3
+    expect(amountDue(500, 3)).toBe(1500);
+    // School B: 250 students @ GH₵4
+    expect(amountDue(250, 4)).toBe(1000);
+    // School C: 120 students @ GH₵5
+    expect(amountDue(120, 5)).toBe(600);
+  });
+
+  it('calculates transparent breakdown with optional discount and 3% markup', () => {
+    // 500 students @ GH₵3 = GH₵1500 subtotal
+    // No discount, 3% markup = GH₵45.00 => Total = GH₵1545.00
+    const b1 = calculateBreakdown(500, 3, 'none', 0, true, 3.0);
+    expect(b1.subtotal).toBe(1500);
+    expect(b1.discount).toBe(0);
+    expect(b1.netSubtotal).toBe(1500);
+    expect(b1.feeMarkup).toBe(45);
+    expect(b1.totalPayable).toBe(1545);
+
+    // 10% percentage discount: GH₵1500 - 10% (GH₵150) = GH₵1350 net
+    // 3% markup on GH₵1350 = GH₵40.50 => Total = GH₵1390.50
+    const b2 = calculateBreakdown(500, 3, 'percentage', 10, true, 3.0);
+    expect(b2.subtotal).toBe(1500);
+    expect(b2.discount).toBe(150);
+    expect(b2.netSubtotal).toBe(1350);
+    expect(b2.feeMarkup).toBe(40.5);
+    expect(b2.totalPayable).toBe(1390.5);
+
+    // Fixed discount: GH₵200 off
+    const b3 = calculateBreakdown(500, 3, 'fixed', 200, false, 0);
+    expect(b3.subtotal).toBe(1500);
+    expect(b3.discount).toBe(200);
+    expect(b3.netSubtotal).toBe(1300);
+    expect(b3.feeMarkup).toBe(0);
+    expect(b3.totalPayable).toBe(1300);
+  });
 });
+
