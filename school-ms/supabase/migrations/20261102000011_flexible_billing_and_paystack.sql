@@ -218,7 +218,8 @@ create index if not exists billing_reminders_school_idx on public.billing_remind
 -- -----------------------------------------------------------------------------
 -- 6. Recreate public.billing_overview View
 -- -----------------------------------------------------------------------------
-create or replace view public.billing_overview with (security_invoker = true) as
+drop view if exists public.billing_overview cascade;
+create view public.billing_overview with (security_invoker = true) as
 select b.id,
        b.school_id,
        sc.name as school_name,
