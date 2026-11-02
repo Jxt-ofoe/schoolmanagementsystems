@@ -33,11 +33,25 @@ export default function AdminSchoolDetail() {
   });
   const billingConfig = useQuery({
     queryKey: ['admin_school_billing_config', schoolId],
-    queryFn: () => unwrap<any>(supabase.from('school_billing_configs').select('*').eq('school_id', schoolId!).maybeSingle()),
+    queryFn: async () => {
+      try {
+        return await unwrap<any>(supabase.from('school_billing_configs').select('*').eq('school_id', schoolId!).maybeSingle());
+      } catch (err: any) {
+        if (err?.code === 'PGRST205' || err?.message?.includes('schema cache')) return null;
+        throw err;
+      }
+    },
   });
   const cardAuth = useQuery({
     queryKey: ['admin_school_card_auth', schoolId],
-    queryFn: () => unwrap<any>(supabase.from('payment_authorizations').select('*').eq('school_id', schoolId!).maybeSingle()),
+    queryFn: async () => {
+      try {
+        return await unwrap<any>(supabase.from('payment_authorizations').select('*').eq('school_id', schoolId!).maybeSingle());
+      } catch (err: any) {
+        if (err?.code === 'PGRST205' || err?.message?.includes('schema cache')) return null;
+        throw err;
+      }
+    },
   });
   const [configuringBilling, setConfiguringBilling] = useState(false);
   const summary = useQuery({

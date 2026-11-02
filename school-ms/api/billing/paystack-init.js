@@ -79,11 +79,17 @@ export async function handlePaystackInit(body, authHeader) {
   }
 
   // Fetch school billing configuration for discount & markup rules
-  const { data: config } = await adminClient
-    .from('school_billing_configs')
-    .select('*')
-    .eq('school_id', school_id)
-    .maybeSingle();
+  let config = null;
+  try {
+    const { data: cfg, error: cfgErr } = await adminClient
+      .from('school_billing_configs')
+      .select('*')
+      .eq('school_id', school_id)
+      .maybeSingle();
+    if (!cfgErr) config = cfg;
+  } catch (_e) {
+    // Migration not yet applied, fallback gracefully
+  }
 
   // 3. Transparent Calculation Breakdown
   const subtotal = Number(bill.student_count) * Number(bill.price_per_student);

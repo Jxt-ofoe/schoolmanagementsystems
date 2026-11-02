@@ -46,16 +46,30 @@ export default function SchoolBillingPage() {
 
   const configQuery = useQuery({
     queryKey: ['school_billing_config', schoolId],
-    queryFn: () => unwrap<SchoolBillingConfig>(
-      supabase.from('school_billing_configs').select('*').eq('school_id', schoolId).maybeSingle()
-    ),
+    queryFn: async () => {
+      try {
+        return await unwrap<SchoolBillingConfig>(
+          supabase.from('school_billing_configs').select('*').eq('school_id', schoolId).maybeSingle()
+        );
+      } catch (err: any) {
+        if (err?.code === 'PGRST205' || err?.message?.includes('schema cache')) return null;
+        throw err;
+      }
+    },
   });
 
   const cardAuthQuery = useQuery({
     queryKey: ['school_card_auth', schoolId],
-    queryFn: () => unwrap<PaymentAuthorization>(
-      supabase.from('payment_authorizations').select('*').eq('school_id', schoolId).eq('reusable', true).maybeSingle()
-    ),
+    queryFn: async () => {
+      try {
+        return await unwrap<PaymentAuthorization>(
+          supabase.from('payment_authorizations').select('*').eq('school_id', schoolId).eq('reusable', true).maybeSingle()
+        );
+      } catch (err: any) {
+        if (err?.code === 'PGRST205' || err?.message?.includes('schema cache')) return null;
+        throw err;
+      }
+    },
   });
 
   const settings = usePlatformSettings();

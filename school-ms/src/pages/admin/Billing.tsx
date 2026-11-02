@@ -75,28 +75,57 @@ export default function AdminBilling() {
     },
   });
 
+  const [isMigrationPending, setIsMigrationPending] = useState(false);
+
   const configsQuery = useQuery({
     queryKey: ['admin_billing_configs'],
-    queryFn: () =>
-      unwrap<(SchoolBillingConfig & { schools?: { name: string; code: string; status: string } })[]>(
-        supabase.from('school_billing_configs').select('*, schools(name, code, status)').order('created_at', { ascending: false })
-      ),
+    queryFn: async () => {
+      try {
+        const res = await unwrap<(SchoolBillingConfig & { schools?: { name: string; code: string; status: string } })[]>(
+          supabase.from('school_billing_configs').select('*, schools(name, code, status)').order('created_at', { ascending: false })
+        );
+        setIsMigrationPending(false);
+        return res;
+      } catch (err: any) {
+        if (err?.code === 'PGRST205' || err?.message?.includes('schema cache')) {
+          setIsMigrationPending(true);
+          return [];
+        }
+        throw err;
+      }
+    },
   });
 
   const paystackTxQuery = useQuery({
     queryKey: ['admin_paystack_transactions'],
-    queryFn: () =>
-      unwrap<(PaystackTransaction & { schools?: { name: string } })[]>(
-        supabase.from('paystack_transactions').select('*, schools(name)').order('created_at', { ascending: false }).limit(50)
-      ),
+    queryFn: async () => {
+      try {
+        return await unwrap<(PaystackTransaction & { schools?: { name: string } })[]>(
+          supabase.from('paystack_transactions').select('*, schools(name)').order('created_at', { ascending: false }).limit(50)
+        );
+      } catch (err: any) {
+        if (err?.code === 'PGRST205' || err?.message?.includes('schema cache')) {
+          return [];
+        }
+        throw err;
+      }
+    },
   });
 
   const remindersQuery = useQuery({
     queryKey: ['admin_billing_reminders'],
-    queryFn: () =>
-      unwrap<(BillingReminder & { schools?: { name: string } })[]>(
-        supabase.from('billing_reminders').select('*, schools(name)').order('sent_at', { ascending: false }).limit(50)
-      ),
+    queryFn: async () => {
+      try {
+        return await unwrap<(BillingReminder & { schools?: { name: string } })[]>(
+          supabase.from('billing_reminders').select('*, schools(name)').order('sent_at', { ascending: false }).limit(50)
+        );
+      } catch (err: any) {
+        if (err?.code === 'PGRST205' || err?.message?.includes('schema cache')) {
+          return [];
+        }
+        throw err;
+      }
+    },
   });
 
   // Recurring Card Charge Mutation
@@ -197,6 +226,34 @@ export default function AdminBilling() {
           </>
         }
       />
+
+      {isMigrationPending && (
+        <div
+          style={{
+            background: 'var(--amber-50, #fffbeb)',
+            border: '1px solid var(--amber-300, #fcd34d)',
+            borderRadius: 8,
+            padding: '14px 18px',
+            marginBottom: 20,
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 12,
+          }}
+        >
+          <span style={{ fontSize: 20 }}>⚠️</span>
+          <div style={{ flex: 1, fontSize: 13, color: '#92400e' }}>
+            <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>
+              Database Migration Required
+            </div>
+            <div>
+              The table <code>public.school_billing_configs</code> has not been detected in Supabase yet.
+              Please copy the migration script from{' '}
+              <code>supabase/migrations/20261102000011_flexible_billing_and_paystack.sql</code>{' '}
+              and execute it in your <strong>Supabase SQL Editor</strong> to enable per-school custom pricing and Paystack features.
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Top Metrics Cards */}
       <div className="stats">

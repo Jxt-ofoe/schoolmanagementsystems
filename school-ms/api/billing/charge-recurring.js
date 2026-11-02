@@ -49,6 +49,11 @@ export async function handleChargeRecurring(body, authHeader) {
 
   const { data: eligibleConfigs, error: cfgErr } = await qy;
   if (cfgErr) {
+    if (cfgErr.code === 'PGRST205' || cfgErr.message?.includes('schema cache')) {
+      throw new Error(
+        "Database migration required: The table 'public.school_billing_configs' does not exist in Supabase yet. Please run the SQL migration 'supabase/migrations/20261102000011_flexible_billing_and_paystack.sql' in your Supabase SQL Editor."
+      );
+    }
     throw new Error(`Failed to query eligible schools: ${cfgErr.message}`);
   }
 
