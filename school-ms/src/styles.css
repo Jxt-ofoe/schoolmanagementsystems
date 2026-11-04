@@ -92,7 +92,7 @@ p { margin: .25rem 0 .75rem; }
 
 /* ---------- page bits ---------- */
 .page-header { display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: flex-end; margin-bottom: 18px; min-width: 0; }
-.page-header > div:first-child { min-width: 0; flex: 1 1 260px; }
+.page-header > div:first-child { min-width: 0; flex: 1 1 auto; }
 .page-header h1 { word-break: break-word; overflow-wrap: break-word; }
 .page-header p { margin: 4px 0 0; word-break: break-word; }
 .page-actions { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -329,14 +329,15 @@ pre.meta { white-space: pre-wrap; word-break: break-word; font-size: .78rem; bac
 @media (max-width: 640px) {
   .main { padding: 12px 14px; }
   .btn { white-space: normal; text-align: center; }
-  .page-header { flex-direction: column; align-items: stretch; gap: 10px; }
-  .page-actions { width: 100%; justify-content: stretch; }
+  .page-header { flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 10px; margin-bottom: 16px; }
+  .page-header > div:first-child { flex: 0 0 auto; width: 100%; }
+  .page-actions { width: 100%; justify-content: flex-start; }
   .page-actions .btn { flex: 1 1 100%; }
   .stat { padding: 12px 14px; }
   .stat-value { font-size: 1.3rem; overflow-wrap: anywhere; }
-  .card-header { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .card-header { flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 8px; }
   .card-actions { align-self: flex-start; }
-  .filters { flex-direction: column; align-items: stretch; }
+  .filters { flex-direction: column; align-items: stretch; gap: 10px; }
   .filters .field, .filters .searchbox { width: 100%; min-width: 0; flex: 1 1 auto; }
   .table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 }
