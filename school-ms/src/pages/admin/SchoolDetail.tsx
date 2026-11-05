@@ -100,7 +100,6 @@ export default function AdminSchoolDetail() {
         }
         subtitle={<><span className="mono">{s.code}</span> · <Badge value={s.status} /> · created {formatDate(s.created_at)}</>}
         actions={<>
-          <Link className="btn btn-secondary" to={`/admin/fees?schoolId=${s.id}`}>Student Fees & Payments</Link>
           {s.status !== 'active' && <Button onClick={() => setStatusTo('active')}>Activate</Button>}
           {s.status === 'active' && <Button variant="secondary" onClick={() => setStatusTo('suspended')}>Suspend</Button>}
           {s.status !== 'inactive' && <Button variant="ghost" onClick={() => setStatusTo('inactive')}>Deactivate</Button>}
@@ -166,8 +165,8 @@ export default function AdminSchoolDetail() {
                     (billingConfig.data?.status || 'active') === 'active'
                       ? 'good'
                       : billingConfig.data?.status === 'grace_period'
-                      ? 'warn'
-                      : 'bad'
+                        ? 'warn'
+                        : 'bad'
                   }
                 />
               </div>
@@ -195,8 +194,8 @@ export default function AdminSchoolDetail() {
                   {billingConfig.data?.discount_type === 'percentage'
                     ? `${billingConfig.data?.discount_value}% off`
                     : billingConfig.data?.discount_type === 'fixed'
-                    ? `GH₵ ${billingConfig.data?.discount_value} off`
-                    : 'None'}
+                      ? `GH₵ ${billingConfig.data?.discount_value} off`
+                      : 'None'}
                 </span>
               </div>
               <div className="kv">

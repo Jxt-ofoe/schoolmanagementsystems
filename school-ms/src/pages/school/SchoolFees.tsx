@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Navigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../lib/auth';
@@ -36,28 +36,16 @@ import {
 } from '../../components/ui';
 
 export default function SchoolFeesPage() {
-  const [params, setParams] = useSearchParams();
   const { active, ctx } = useAuth();
-  const isSuperAdmin = !!ctx?.is_super_admin;
 
-  const allSchools = useQuery({
-    queryKey: ['admin_all_schools_fee_dropdown'],
-    enabled: isSuperAdmin,
-    queryFn: () =>
-      unwrap<{ id: string; name: string; code: string }[]>(
-        supabase.from('schools').select('id, name, code').eq('status', 'active').order('name')
-      ),
-  });
+  // Super Admin must not access school fee management
+  if (ctx?.is_super_admin && !active?.school_id) {
+    return <Navigate to="/admin" replace />;
+  }
 
-  const urlSchoolId = params.get('schoolId');
-  const effectiveSchoolId =
-    urlSchoolId ||
-    active?.school_id ||
-    (isSuperAdmin ? (allSchools.data?.[0]?.id || '') : '');
-
-  const currentSchool = allSchools.data?.find((s) => s.id === effectiveSchoolId);
-  const effectiveSchoolName = currentSchool?.name || active?.school_name || 'School Management';
-  const effectiveSchoolCode = currentSchool?.code || 'FEE';
+  const effectiveSchoolId = active?.school_id || '';
+  const effectiveSchoolName = active?.school_name || 'School Management';
+  const effectiveSchoolCode = 'FEE';
 
   const qc = useQueryClient();
   const toast = useToast();
@@ -404,26 +392,6 @@ export default function SchoolFeesPage() {
       />
 
       <div className="filters">
-        {isSuperAdmin && (
-          <Select
-            label="School"
-            value={effectiveSchoolId}
-            onChange={(e) => {
-              const newId = e.target.value;
-              setParams((prev) => {
-                const next = new URLSearchParams(prev);
-                next.set('schoolId', newId);
-                return next;
-              });
-            }}
-          >
-            {allSchools.data?.map((sch) => (
-              <option key={sch.id} value={sch.id}>
-                {sch.name} ({sch.code})
-              </option>
-            ))}
-          </Select>
-        )}
         <Select
           label="Semester"
           value={activeSemester?.id ?? ''}

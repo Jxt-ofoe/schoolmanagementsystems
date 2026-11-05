@@ -76,7 +76,6 @@ export function App() {
           <Route path="admin" element={<RequireRole need="super_admin"><AdminDashboard /></RequireRole>} />
           <Route path="admin/schools" element={<RequireRole need="super_admin"><AdminSchools /></RequireRole>} />
           <Route path="admin/schools/:schoolId" element={<RequireRole need="super_admin"><AdminSchoolDetail /></RequireRole>} />
-          <Route path="admin/fees" element={<RequireRole need="super_admin"><SchoolFeesPage /></RequireRole>} />
           <Route path="admin/billing" element={<RequireRole need="super_admin"><AdminBilling /></RequireRole>} />
           <Route path="admin/renewals" element={<RequireRole need="super_admin"><AdminRenewals /></RequireRole>} />
           <Route path="admin/settings" element={<RequireRole need="super_admin"><AdminSettings /></RequireRole>} />
