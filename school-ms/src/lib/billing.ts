@@ -5,10 +5,37 @@
 
 export const PRICE_PER_STUDENT_PER_TERM = 3; // Default GHS 3 per student per term
 export const DEFAULT_SNAPSHOT_WEEK = 2; // Week 2 of term for student snapshot
+export const TERM_GRACE_PERIOD_DAYS = 30; // 30-day grace period at term start
+export const INVOICE_PAYMENT_DUE_DAYS = 7; // Invoices due 7 days after issue
 
 export type PaymentStatus = 'no_charge' | 'unpaid' | 'partial' | 'paid' | 'overpaid';
 
 export interface Registration { student_id: string; status: 'registered' | 'withdrawn' | 'transferred_out' | 'voided' }
+
+/** Evaluates whether the school is currently in its 30-day term start grace period. */
+export function getTermGraceStatus(termStartsOn?: string | Date | null, graceDays = TERM_GRACE_PERIOD_DAYS) {
+  if (!termStartsOn) {
+    return { inGrace: false, graceEnd: null, daysRemaining: 0 };
+  }
+  const start = new Date(termStartsOn);
+  if (Number.isNaN(start.getTime())) {
+    return { inGrace: false, graceEnd: null, daysRemaining: 0 };
+  }
+  const graceEnd = new Date(start);
+  graceEnd.setDate(graceEnd.getDate() + graceDays);
+
+  const now = new Date();
+  const diffTime = graceEnd.getTime() - now.getTime();
+  const daysRemaining = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+  const inGrace = daysRemaining > 0;
+
+  return { inGrace, graceEnd, daysRemaining };
+}
+
+/** Determines if school is suspended due to billing or platform status. */
+export function isSchoolSuspended(schoolStatus?: string, billingStatus?: string): boolean {
+  return schoolStatus === 'suspended' || billingStatus === 'suspended' || billingStatus === 'payment_overdue';
+}
 
 /** Unique students with a non-voided registration. */
 export function billableCount(regs: Registration[]): number {

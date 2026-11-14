@@ -98,7 +98,7 @@ export function App() {
           <Route path="school/attendance" element={<RequireRole need="headmaster"><AttendanceOverviewPage /></RequireRole>} />
           <Route path="school/grades" element={<RequireRole need="headmaster"><GradesOverviewPage /></RequireRole>} />
           <Route path="school/reports" element={<RequireRole need="headmaster"><ReportsPage /></RequireRole>} />
-          <Route path="school/billing" element={<RequireRole need="headmaster"><SchoolBillingPage /></RequireRole>} />
+          <Route path="school/billing" element={<RequireRole need="teacher"><SchoolBillingPage /></RequireRole>} />
           <Route path="school/settings" element={<RequireRole need="headmaster"><SchoolSettingsPage /></RequireRole>} />
           <Route path="school/communication/sms" element={<RequireRole need="headmaster"><BulkSmsPage /></RequireRole>} />
           <Route path="school/communication/whatsapp" element={<RequireRole need="headmaster"><WhatsAppSharePage /></RequireRole>} />

@@ -320,31 +320,42 @@ export default function AdminBilling() {
               <thead>
                 <tr>
                   <th>School</th>
-                  <th>Current Term</th>
-                  <th>Student Snapshot</th>
-                  <th>Rate</th>
-                  <th className="num">Term Bill</th>
-                  <th className="num">Paid</th>
+                  <th>Grace Period End</th>
+                  <th>Current Term Invoice</th>
+                  <th>Rate & Calculation</th>
                   <th className="num">Balance</th>
+                  <th>Top-ups</th>
                   <th>Payment Status</th>
-                  <th>Due Date</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {schoolsQuery.isLoading ? (
-                  <tr><td colSpan={10}><Spinner /></td></tr>
-                ) : !schoolsQuery.data?.filter(s => s.status === 'active').length ? (
-                  <tr><td colSpan={10}><EmptyState title="No active schools found" /></td></tr>
+                  <tr><td colSpan={8}><Spinner /></td></tr>
+                ) : !schoolsQuery.data?.length ? (
+                  <tr><td colSpan={8}><EmptyState title="No schools found" /></td></tr>
                 ) : (
                   schoolsQuery.data
-                    .filter((s) => s.status === 'active')
                     .filter((s) => !q || `${s.name} ${s.code}`.toLowerCase().includes(q.toLowerCase()))
                     .map((s) => {
-                      // Find most recent or current term invoice for this school
-                      const schoolBill = allBills.find((b) => b.school_id === s.id && (b.is_current || !b.billing_month));
+                      // Find most recent main term invoice
+                      const schoolMainBills = allBills.filter((b) => b.school_id === s.id && !b.is_topup);
+                      const schoolBill = schoolMainBills.find((b) => b.is_current) || schoolMainBills[0];
                       const schoolCfg = allConfigs.find((c) => c.school_id === s.id);
                       const priceRate = Number(schoolBill?.price_per_student ?? schoolCfg?.price_per_student ?? PRICE_PER_STUDENT_PER_TERM);
+
+                      // Top-ups for this school
+                      const schoolTopups = allBills.filter((b) => b.school_id === s.id && b.is_topup);
+                      const unpaidTopups = schoolTopups.filter((b) => Number(b.balance) > 0);
+                      const pendingTopupStudents = schoolCfg?.pending_topup_count || unpaidTopups.reduce((sum, b) => sum + b.student_count, 0);
+
+                      // Grace period calculation
+                      const graceEnd = schoolBill?.grace_period_end || schoolCfg?.grace_period_end;
+                      const inGrace = graceEnd ? (todayISO() < graceEnd && !schoolBill) : false;
+
+                      // School status
+                      const isSuspended = s.status === 'suspended' || schoolCfg?.status === 'payment_overdue';
+                      const isPaid = schoolBill && Number(schoolBill.balance) <= 0 && unpaidTopups.length === 0;
 
                       return (
                         <tr key={s.id}>
@@ -353,58 +364,98 @@ export default function AdminBilling() {
                               <strong>{s.name}</strong>
                             </Link>
                             <div className="muted small">{s.code}</div>
+                            {isSuspended && (
+                              <Badge value="Suspended" tone="bad" />
+                            )}
+                          </td>
+                          <td>
+                            {graceEnd ? (
+                              <div>
+                                <strong>{formatDate(graceEnd)}</strong>
+                                <div>
+                                  {inGrace ? (
+                                    <Badge value="Grace Period Active" tone="warn" />
+                                  ) : (
+                                    <span className="muted small">Grace Ended</span>
+                                  )}
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="muted">30 days from term start</span>
+                            )}
                           </td>
                           <td>
                             {schoolBill ? (
-                              <>
-                                <strong>{schoolBill.period_label || schoolBill.semester_name || 'Current Term'}</strong>
-                                {schoolBill.snapshot_date && (
-                                  <div className="muted small">Snapshot: {formatDate(schoolBill.snapshot_date)}</div>
-                                )}
-                              </>
+                              <div>
+                                <strong>{schoolBill.period_label || schoolBill.semester_name || 'Term Invoice'}</strong>
+                                {schoolBill.invoice_number && <div className="mono small muted">{schoolBill.invoice_number}</div>}
+                                <div className="small muted">
+                                  {schoolBill.due_date ? `Due: ${formatDate(schoolBill.due_date)}` : ''}
+                                </div>
+                              </div>
                             ) : (
                               <span className="muted">No term invoice yet</span>
                             )}
                           </td>
                           <td>
                             {schoolBill ? (
-                              <span><strong>{schoolBill.student_count}</strong> active students</span>
+                              <div>
+                                <span className="mono" style={{ fontWeight: 600 }}>
+                                  {schoolBill.student_count} students × {formatMoney(priceRate)} = {formatMoney(schoolBill.student_count * priceRate)}
+                                </span>
+                                {Number(schoolBill.fee_markup_amount) > 0 && (
+                                  <div className="muted small">+ {formatMoney(schoolBill.fee_markup_amount)} proc. fee</div>
+                                )}
+                              </div>
                             ) : (
-                              <span className="muted">—</span>
+                              <span className="muted">{formatMoney(priceRate)} / student</span>
                             )}
-                          </td>
-                          <td>{formatMoney(priceRate)} / student</td>
-                          <td className="num">
-                            {schoolBill ? (
-                              <strong>{formatMoney(schoolBill.total_payable ?? schoolBill.amount_due)}</strong>
-                            ) : (
-                              <span className="muted">—</span>
-                            )}
-                          </td>
-                          <td className="num" style={{ color: 'var(--green)' }}>
-                            {schoolBill ? formatMoney(schoolBill.amount_paid) : '—'}
                           </td>
                           <td className="num">
                             {schoolBill ? (
-                              <strong style={{ color: schoolBill.balance > 0 ? 'var(--warn)' : 'var(--green)' }}>
+                              <strong style={{ fontSize: '1rem', color: Number(schoolBill.balance) > 0 ? 'var(--warn)' : 'var(--green)' }}>
                                 {formatMoney(schoolBill.balance)}
                               </strong>
                             ) : (
-                              '—'
+                              <span className="muted">—</span>
                             )}
                           </td>
                           <td>
-                            {schoolBill ? (
-                              <Badge value={schoolBill.payment_status} />
+                            {pendingTopupStudents > 0 || schoolTopups.length > 0 ? (
+                              <div>
+                                <strong>+{pendingTopupStudents} students</strong>
+                                <div className="small muted">
+                                  {unpaidTopups.length} unpaid top-up ({formatMoney(unpaidTopups.reduce((acc, t) => acc + Number(t.balance), 0))})
+                                </div>
+                              </div>
                             ) : (
-                              <Badge value="Not Invoiced" tone="muted" />
+                              <span className="muted">None</span>
                             )}
                           </td>
-                          <td className="small">
-                            {schoolBill?.due_date ? formatDate(schoolBill.due_date) : '—'}
+                          <td>
+                            {isSuspended ? (
+                              <Badge value="Suspended" tone="bad" />
+                            ) : inGrace ? (
+                              <Badge value="Grace Period" tone="warn" />
+                            ) : isPaid ? (
+                              <Badge value="Paid" tone="good" />
+                            ) : schoolBill ? (
+                              <Badge value={schoolBill.payment_status} />
+                            ) : (
+                              <Badge value="Pending Term Invoice" tone="muted" />
+                            )}
                           </td>
                           <td>
                             <div className="table-actions">
+                              {/* Prominent Mark as paid button for cash and bank transfers */}
+                              {((schoolBill && Number(schoolBill.balance) > 0) || unpaidTopups.length > 0) && (
+                                <Button
+                                  size="sm"
+                                  onClick={() => setPaying(unpaidTopups.length > 0 && (!schoolBill || Number(schoolBill.balance) <= 0) ? unpaidTopups[0] : schoolBill!)}
+                                >
+                                  Mark as paid
+                                </Button>
+                              )}
                               <Button
                                 size="sm"
                                 variant={schoolBill ? 'secondary' : 'primary'}
@@ -412,11 +463,6 @@ export default function AdminBilling() {
                               >
                                 {schoolBill ? 'Re-generate' : 'Generate Invoice'}
                               </Button>
-                              {schoolBill && schoolBill.balance > 0 && (
-                                <Button size="sm" onClick={() => setPaying(schoolBill)}>
-                                  Record Offline
-                                </Button>
-                              )}
                             </div>
                           </td>
                         </tr>
@@ -1190,7 +1236,7 @@ function PaymentModal({ bill, onClose }: { bill: BillingOverview; onClose: () =>
   const toast = useToast();
   const [v, setV] = useState({
     amount: String(Math.max(0, Number(bill.balance)).toFixed(2)),
-    method: 'mobile_money',
+    method: 'bank_transfer',
     reference: '',
     paid_on: todayISO(),
     notes: '',
@@ -1205,20 +1251,40 @@ function PaymentModal({ bill, onClose }: { bill: BillingOverview; onClose: () =>
         setErrors(fieldErrors(parsed.error));
         throw new Error('Please fix the highlighted fields.');
       }
+      if (!parsed.data.reference || !parsed.data.reference.trim()) {
+        setErrors({ reference: 'A reference number is required for cash/bank transfer audit trails' });
+        throw new Error('A reference number is required.');
+      }
       if (!confirmed) throw new Error('Confirm that you have verified this payment.');
-      const { error } = await supabase.rpc('record_payment', {
+
+      // Try dedicated admin_mark_invoice_paid RPC first
+      const { error: markErr } = await supabase.rpc('admin_mark_invoice_paid', {
         p_billing_id: bill.id,
         p_amount: parsed.data.amount,
         p_method: parsed.data.method,
-        p_reference: parsed.data.reference,
+        p_reference: parsed.data.reference.trim(),
         p_paid_on: parsed.data.paid_on,
         p_notes: parsed.data.notes,
       });
-      if (error) throw error;
+
+      if (markErr) {
+        // Fallback to record_payment
+        const { error } = await supabase.rpc('record_payment', {
+          p_billing_id: bill.id,
+          p_amount: parsed.data.amount,
+          p_method: parsed.data.method,
+          p_reference: parsed.data.reference.trim(),
+          p_paid_on: parsed.data.paid_on,
+          p_notes: parsed.data.notes,
+        });
+        if (error) throw error;
+      }
     },
     onSuccess: () => {
-      toast('Payment recorded');
+      toast('Payment marked as paid successfully');
       qc.invalidateQueries({ queryKey: ['admin_billing'] });
+      qc.invalidateQueries({ queryKey: ['admin_all_schools'] });
+      qc.invalidateQueries({ queryKey: ['admin_billing_configs'] });
       qc.invalidateQueries({ queryKey: ['payments_for'] });
       onClose();
     },
@@ -1227,7 +1293,7 @@ function PaymentModal({ bill, onClose }: { bill: BillingOverview; onClose: () =>
   return (
     <Modal
       open
-      title={`Record offline payment · ${bill.school_name}`}
+      title={`Mark invoice as paid · ${bill.school_name}`}
       onClose={onClose}
       footer={
         <>
@@ -1235,7 +1301,7 @@ function PaymentModal({ bill, onClose }: { bill: BillingOverview; onClose: () =>
             Cancel
           </Button>
           <Button onClick={() => m.mutate()} loading={m.isPending} disabled={!confirmed}>
-            Record payment
+            Mark as paid
           </Button>
         </>
       }
@@ -1264,26 +1330,25 @@ function PaymentModal({ bill, onClose }: { bill: BillingOverview; onClose: () =>
           error={errors.paid_on}
           required
         />
-        <Select label="Method" value={v.method} onChange={(e) => setV({ ...v, method: e.target.value })}>
-          <option value="mobile_money">Mobile money</option>
+        <Select label="Payment Method" value={v.method} onChange={(e) => setV({ ...v, method: e.target.value })}>
           <option value="bank_transfer">Bank transfer</option>
           <option value="cash">Cash</option>
+          <option value="mobile_money">Mobile money (manual/offline)</option>
           <option value="cheque">Cheque</option>
-          <option value="card">Card</option>
-          <option value="other">Other</option>
         </Select>
         <Input
-          label="Reference / receipt no."
+          label="Payment Reference / Receipt #"
           value={v.reference}
           onChange={(e) => setV({ ...v, reference: e.target.value })}
           error={errors.reference}
-          hint="Prevents recording the same receipt twice"
+          hint="Bank transaction ref, teller number, or cash receipt voucher #"
+          required
         />
       </div>
-      <Textarea label="Notes" value={v.notes} onChange={(e) => setV({ ...v, notes: e.target.value })} />
-      <label className="checkbox">
+      <Textarea label="Notes (optional)" value={v.notes} onChange={(e) => setV({ ...v, notes: e.target.value })} />
+      <label className="checkbox-row" style={{ marginTop: 12 }}>
         <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
-        I have verified that this money was received (statement, MoMo confirmation or receipt).
+        <span>I have physically verified receipt of this payment via bank or cash slip.</span>
       </label>
     </Modal>
   );

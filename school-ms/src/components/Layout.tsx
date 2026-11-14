@@ -1,9 +1,12 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
-import { useSchoolDetails } from '../lib/queries';
+import { useSchoolDetails, unwrap } from '../lib/queries';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '../lib/supabase';
 import { isLocalStack } from '../lib/supabase';
-import { humanize } from '../lib/format';
+import { humanize, formatDate, formatMoney, todayISO } from '../lib/format';
+import type { BillingOverview } from '../lib/types';
 
 interface NavItem { to: string; label: string; icon: ReactNode; end?: boolean }
 
@@ -36,63 +39,183 @@ const icons = {
   history: i('M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0z'),
 };
 
-function navFor(isSuperAdmin: boolean, role: string | undefined): { section: string; items: NavItem[] }[] {
+function navFor(isSuperAdmin: boolean, role: string | undefined, schoolStatus?: string): { section: string; items: NavItem[] }[] {
   const sections: { section: string; items: NavItem[] }[] = [];
   if (isSuperAdmin) {
-    sections.push({ section: 'Platform', items: [
-      { to: '/admin', label: 'Overview', icon: icons.home, end: true },
-      { to: '/admin/schools', label: 'Schools', icon: icons.school },
-      { to: '/admin/billing', label: 'Billing', icon: icons.money },
-      { to: '/admin/renewals', label: 'Renewals & Invoices', icon: icons.renew },
-      { to: '/admin/settings', label: 'Settings', icon: icons.gear },
-      { to: '/admin/audit', label: 'Audit log', icon: icons.log },
-    ] });
+    sections.push({
+      section: 'Platform', items: [
+        { to: '/admin', label: 'Overview', icon: icons.home, end: true },
+        { to: '/admin/schools', label: 'Schools', icon: icons.school },
+        { to: '/admin/billing', label: 'Billing', icon: icons.money },
+        { to: '/admin/renewals', label: 'Renewals & Invoices', icon: icons.renew },
+        { to: '/admin/settings', label: 'Settings', icon: icons.gear },
+        { to: '/admin/audit', label: 'Audit log', icon: icons.log },
+      ]
+    });
   }
+
+  // Access rule: when suspended, school staff only see the billing page
+  if (!isSuperAdmin && schoolStatus === 'suspended') {
+    return [{
+      section: 'Subscription',
+      items: [
+        { to: '/school/billing', label: 'Subscription Billing', icon: icons.money },
+      ],
+    }];
+  }
+
   if (role === 'headmaster') {
-    sections.push({ section: 'Academic', items: [
-      { to: '/school', label: 'Dashboard', icon: icons.home, end: true },
-      { to: '/school/students', label: 'Students', icon: icons.users },
-      { to: '/school/examinations', label: 'Examinations', icon: icons.exam },
-      { to: '/school/consolidated', label: 'Consolidated Results', icon: icons.table },
-      { to: '/school/reports/terminal', label: 'Terminal Reports', icon: icons.report },
-      { to: '/school/promotions', label: 'Student Promotion', icon: icons.promote },
-      { to: '/school/fees', label: 'Fees & Payments', icon: icons.fee },
-      { to: '/school/attendance', label: 'Attendance', icon: icons.check },
-      { to: '/school/grades', label: 'Grades Overview', icon: icons.chart },
-      { to: '/school/reports', label: 'Analytics Reports', icon: icons.report },
-    ] });
-    sections.push({ section: 'Communication', items: [
-      { to: '/school/communication/sms', label: 'Bulk SMS', icon: icons.message },
-      { to: '/school/communication/whatsapp', label: 'WhatsApp Report Cards', icon: icons.share },
-      { to: '/school/communication/history', label: 'Message History', icon: icons.history },
-      { to: '/school/communication/settings', label: 'SMS Settings', icon: icons.gear },
-    ] });
-    sections.push({ section: 'Setup', items: [
-      { to: '/school/teachers', label: 'Teachers', icon: icons.teacher },
-      { to: '/school/classes', label: 'Classes', icon: icons.grid },
-      { to: '/school/subjects', label: 'Subjects', icon: icons.book },
-      { to: '/school/academic', label: 'Academic calendar', icon: icons.calendar },
-      { to: '/school/billing', label: 'Subscription Billing', icon: icons.money },
-      { to: '/school/settings', label: 'School settings', icon: icons.gear },
-    ] });
+    sections.push({
+      section: 'Academic', items: [
+        { to: '/school', label: 'Dashboard', icon: icons.home, end: true },
+        { to: '/school/students', label: 'Students', icon: icons.users },
+        { to: '/school/examinations', label: 'Examinations', icon: icons.exam },
+        { to: '/school/consolidated', label: 'Consolidated Results', icon: icons.table },
+        { to: '/school/reports/terminal', label: 'Terminal Reports', icon: icons.report },
+        { to: '/school/promotions', label: 'Student Promotion', icon: icons.promote },
+        { to: '/school/fees', label: 'Fees & Payments', icon: icons.fee },
+        { to: '/school/attendance', label: 'Attendance', icon: icons.check },
+        { to: '/school/grades', label: 'Grades Overview', icon: icons.chart },
+        { to: '/school/reports', label: 'Analytics Reports', icon: icons.report },
+      ]
+    });
+    sections.push({
+      section: 'Communication', items: [
+        { to: '/school/communication/sms', label: 'Bulk SMS', icon: icons.message },
+        { to: '/school/communication/whatsapp', label: 'WhatsApp Report Cards', icon: icons.share },
+        { to: '/school/communication/history', label: 'Message History', icon: icons.history },
+        { to: '/school/communication/settings', label: 'SMS Settings', icon: icons.gear },
+      ]
+    });
+    sections.push({
+      section: 'Setup', items: [
+        { to: '/school/teachers', label: 'Teachers', icon: icons.teacher },
+        { to: '/school/classes', label: 'Classes', icon: icons.grid },
+        { to: '/school/subjects', label: 'Subjects', icon: icons.book },
+        { to: '/school/academic', label: 'Academic calendar', icon: icons.calendar },
+        { to: '/school/billing', label: 'Subscription Billing', icon: icons.money },
+        { to: '/school/settings', label: 'School settings', icon: icons.gear },
+      ]
+    });
   }
   if (role === 'teacher') {
-    sections.push({ section: 'Teaching', items: [
-      { to: '/teach', label: 'My dashboard', icon: icons.home, end: true },
-      { to: '/teach/students', label: 'My students', icon: icons.users },
-      { to: '/teach/consolidated', label: 'Class Results', icon: icons.table },
-      { to: '/teach/reports', label: 'Terminal Reports', icon: icons.report },
-      { to: '/teach/grades', label: 'Enter Grades', icon: icons.chart },
-      { to: '/teach/attendance', label: 'Attendance', icon: icons.check },
-    ] });
-    sections.push({ section: 'Communication', items: [
-      { to: '/teach/communication/whatsapp', label: 'WhatsApp Report Cards', icon: icons.share },
-      { to: '/teach/communication/history', label: 'Message History', icon: icons.history },
-    ] });
+    sections.push({
+      section: 'Teaching', items: [
+        { to: '/teach', label: 'My dashboard', icon: icons.home, end: true },
+        { to: '/teach/students', label: 'My students', icon: icons.users },
+        { to: '/teach/consolidated', label: 'Class Results', icon: icons.table },
+        { to: '/teach/reports', label: 'Terminal Reports', icon: icons.report },
+        { to: '/teach/grades', label: 'Enter Grades', icon: icons.chart },
+        { to: '/teach/attendance', label: 'Attendance', icon: icons.check },
+      ]
+    });
+    sections.push({
+      section: 'Communication', items: [
+        { to: '/teach/communication/whatsapp', label: 'WhatsApp Report Cards', icon: icons.share },
+        { to: '/teach/communication/history', label: 'Message History', icon: icons.history },
+      ]
+    });
   }
   return sections;
 }
 
+
+function SchoolBillingBanner({
+  schoolId,
+  isSuperAdmin,
+  schoolStatus,
+}: {
+  schoolId?: string;
+  isSuperAdmin: boolean;
+  schoolStatus?: string;
+}) {
+  const billsQuery = useQuery({
+    queryKey: ['billing_overview_banner', schoolId],
+    enabled: !isSuperAdmin && !!schoolId,
+    queryFn: () =>
+      unwrap<BillingOverview[]>(
+        supabase
+          .from('billing_overview')
+          .select('*')
+          .eq('school_id', schoolId!)
+          .order('created_at', { ascending: false })
+      ),
+  });
+
+  const semQuery = useQuery({
+    queryKey: ['current_semester_banner', schoolId],
+    enabled: !isSuperAdmin && !!schoolId,
+    queryFn: () =>
+      unwrap<{ id: string; starts_on: string | null; is_current: boolean; name: string }[]>(
+        supabase
+          .from('semesters')
+          .select('id, starts_on, is_current, name')
+          .eq('school_id', schoolId!)
+          .eq('is_current', true)
+          .limit(1)
+      ),
+  });
+
+  if (isSuperAdmin || !schoolId) return null;
+
+  const currentSem = semQuery.data?.[0];
+  const bills = billsQuery.data ?? [];
+  const mainBill = bills.find((b) => !b.is_topup && (b.is_current || b.semester_id === currentSem?.id));
+  const unpaidBills = bills.filter((b) => Number(b.balance) > 0);
+  const overdueBill = unpaidBills.find((b) => b.due_date && b.due_date < todayISO());
+  const isSuspended = schoolStatus === 'suspended' || !!overdueBill;
+
+  // 1. School Suspended (Overdue invoice)
+  if (isSuspended) {
+    const totalOverdue = unpaidBills.reduce((acc, b) => acc + Number(b.balance), 0);
+    return (
+      <div className="alert alert-error" style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+          <div>
+            <strong>⚠️ School Suspended:</strong> An outstanding term invoice of{' '}
+            <strong>{formatMoney(totalOverdue || mainBill?.balance || 0)}</strong> is overdue{' '}
+            (due {formatDate(overdueBill?.due_date ?? mainBill?.due_date)}). All data is preserved, but operational access is locked until paid.
+          </div>
+          <Link to="/school/billing" className="btn btn-sm btn-primary">Pay Invoice Now</Link>
+        </div>
+      </div>
+    );
+  }
+
+  // 2. Main or Top-up Invoice Issued & Unpaid (Warning banner from issue until paid)
+  if (unpaidBills.length > 0) {
+    const activeUnpaid = unpaidBills[0];
+    return (
+      <div className="alert alert-warn" style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+          <div>
+            <strong>⚠️ Term Invoice Issued:</strong> Your invoice of{' '}
+            <strong>{formatMoney(activeUnpaid.total_payable || activeUnpaid.amount_due)}</strong> was issued on{' '}
+            {formatDate(activeUnpaid.issue_date || activeUnpaid.created_at)}. Payment is due on{' '}
+            <strong>{formatDate(activeUnpaid.due_date)}</strong>. Please settle your payment before the due date to prevent school suspension.
+          </div>
+          <Link to="/school/billing" className="btn btn-sm btn-secondary">Review & Pay</Link>
+        </div>
+      </div>
+    );
+  }
+
+  // 3. Grace Period (Term start: 30-day grace period, no invoice issued yet)
+  if (currentSem?.starts_on && !mainBill) {
+    const termStart = new Date(currentSem.starts_on);
+    const graceEnd = new Date(termStart);
+    graceEnd.setDate(graceEnd.getDate() + 30);
+    const graceEndISO = graceEnd.toISOString().slice(0, 10);
+
+    return (
+      <div className="alert alert-info" style={{ marginBottom: 16 }}>
+        ℹ️ <strong>Your grace period ends on {formatDate(graceEndISO)}. Register all students before then.</strong>
+      </div>
+    );
+  }
+
+  return null;
+}
 
 export function Layout() {
   const { ctx, active, setActiveSchool, signOut } = useAuth();
@@ -104,7 +227,7 @@ export function Layout() {
   const schoolDetails = useSchoolDetails(active?.school_id);
   const schoolLogo = schoolDetails.data?.logo_url;
 
-  const sections = navFor(!!ctx?.is_super_admin, active?.role);
+  const sections = navFor(!!ctx?.is_super_admin, active?.role, active?.school_status);
   const name = ctx?.profile?.full_name || ctx?.profile?.email || 'Account';
 
   return (
@@ -188,12 +311,11 @@ export function Layout() {
       {open && <div className="scrim" onClick={() => setOpen(false)} aria-hidden />}
 
       <main id="main" className="main">
-        {active && active.school_status !== 'active' && !ctx?.is_super_admin && (
-          <div className="alert alert-warn">
-            This school is currently <strong>{active.school_status}</strong>. Access to school records is paused.
-            Headmasters can still view billing; contact the platform administrator to reactivate.
-          </div>
-        )}
+        <SchoolBillingBanner
+          schoolId={active?.school_id}
+          isSuperAdmin={!!ctx?.is_super_admin}
+          schoolStatus={active?.school_status}
+        />
         <Outlet />
       </main>
     </div>

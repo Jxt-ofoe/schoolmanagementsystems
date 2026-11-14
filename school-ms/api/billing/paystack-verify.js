@@ -116,35 +116,26 @@ export async function handlePaystackVerify(body, authHeader) {
     throw new Error('Transaction metadata is incomplete (missing school or invoice reference)');
   }
 
-  // 5. Insert verified payment record into public.payments
-  // The database trigger sync_amount_paid will automatically recalculate amount_paid on semester_billing!
-  const { data: newPayment, error: pErr } = await adminClient
+  // 5. Strictly enforce rule: Only the webhook marks an invoice as paid, never the redirect.
+  // Check if webhook has already recorded this payment into public.payments
+  const { data: webhookPayment } = await adminClient
     .from('payments')
-    .insert({
-      school_id: schoolId,
-      billing_id: billingId,
-      amount: amountPaidGHS,
-      method: channel,
-      reference: reference,
-      paid_on: paidDate,
-      verification: 'provider_verified',
-      provider: 'paystack',
-      notes: `Verified online payment via Paystack (${paystackData.channel})`,
-      status: 'valid',
-      recorded_by: callerId,
-    })
-    .select('id')
-    .single();
+    .select('id, paid_on, amount, status')
+    .eq('reference', reference)
+    .maybeSingle();
 
-  if (pErr) {
-    // If unique reference conflict, handle gracefully
-    if (pErr.code === '23505') {
-      return { status: 'success', already_verified: true, reference, message: 'Payment reference already recorded' };
-    }
-    throw new Error(`Failed to record payment in database: ${pErr.message}`);
+  if (webhookPayment) {
+    return {
+      status: 'success',
+      paid: true,
+      already_verified: true,
+      reference,
+      amount: webhookPayment.amount,
+      message: 'Payment confirmed by webhook and credited to invoice',
+    };
   }
 
-  // 6. Update Paystack transaction record
+  // Update Paystack transaction record with status, but NEVER insert into public.payments
   await adminClient.from('paystack_transactions').upsert({
     reference,
     school_id: schoolId,
@@ -152,8 +143,8 @@ export async function handlePaystackVerify(body, authHeader) {
     amount: amountPaidGHS,
     currency: paystackData.currency || 'GHS',
     channel: paystackData.channel,
-    status: 'success',
-    gateway_response: paystackData.gateway_response || 'Approved',
+    status: 'pending_webhook',
+    gateway_response: paystackData.gateway_response || 'Authorized via Paystack; awaiting webhook confirmation to credit invoice',
     paid_at: paystackData.paid_at,
     customer_email: paystackData.customer?.email,
     customer_code: paystackData.customer?.customer_code,
@@ -162,86 +153,13 @@ export async function handlePaystackVerify(body, authHeader) {
     raw_payload: paystackData,
   }, { onConflict: 'reference' });
 
-  // 7. Store reusable card authorization if available
-  if (paystackData.channel === 'card' && paystackData.authorization?.reusable && paystackData.authorization?.authorization_code) {
-    const authInfo = paystackData.authorization;
-    await adminClient.from('payment_authorizations').upsert({
-      school_id: schoolId,
-      authorization_code: authInfo.authorization_code,
-      card_type: authInfo.card_type,
-      last4: authInfo.last4,
-      exp_month: authInfo.exp_month,
-      exp_year: authInfo.exp_year,
-      bin: authInfo.bin,
-      bank: authInfo.bank,
-      channel: 'card',
-      signature: authInfo.signature,
-      reusable: true,
-      country_code: authInfo.country_code || 'GH',
-      account_name: authInfo.account_name,
-      customer_email: paystackData.customer?.email,
-      is_default: true,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'school_id, authorization_code' });
-  }
-
-  // 8. Update School Billing Configuration & Next Billing Date
-  const { data: config } = await adminClient
-    .from('school_billing_configs')
-    .select('*')
-    .eq('school_id', schoolId)
-    .maybeSingle();
-
-  const freq = config?.billing_frequency || 'semester';
-  const nextDate = new Date();
-  if (freq === 'monthly') {
-    nextDate.setMonth(nextDate.getMonth() + 1);
-  } else {
-    nextDate.setMonth(nextDate.getMonth() + 4); // Standard semester
-  }
-  const nextBillingISO = nextDate.toISOString().slice(0, 10);
-
-  await adminClient
-    .from('school_billing_configs')
-    .update({
-      status: 'active',
-      next_billing_date: nextBillingISO,
-      grace_period_end: null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('school_id', schoolId);
-
-  // If school status was suspended, restore to active
-  await adminClient
-    .from('schools')
-    .update({ status: 'active', updated_at: new Date().toISOString() })
-    .eq('id', schoolId)
-    .eq('status', 'suspended');
-
-  // 9. Audit Log
-  await adminClient.from('audit_logs').insert({
-    school_id: schoolId,
-    actor_id: callerId,
-    actor_role: 'system',
-    action: 'paystack_payment_verified',
-    entity_type: 'payments',
-    entity_id: newPayment.id,
-    metadata: {
-      reference,
-      amount: amountPaidGHS,
-      channel: paystackData.channel,
-      billing_id: billingId,
-    },
-  });
-
   return {
-    status: 'success',
-    verified: true,
-    payment_id: newPayment.id,
+    status: 'pending',
+    paid: false,
     reference,
     amount: amountPaidGHS,
     channel: paystackData.channel,
-    next_billing_date: nextBillingISO,
+    message: 'Payment received by Paystack. Awaiting webhook confirmation to update your account.',
   };
 }
 

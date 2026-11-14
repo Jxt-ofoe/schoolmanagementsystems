@@ -149,6 +149,9 @@ export async function handlePaystackWebhook(rawBody, signature) {
         .eq('id', schoolId)
         .eq('status', 'suspended');
 
+      // Enforce school billing status and unsuspension check
+      await adminClient.rpc('check_and_enforce_school_billing_status', { p_school_id: schoolId }).catch(() => {});
+
       // Audit log
       await adminClient.from('audit_logs').insert({
         school_id: schoolId,

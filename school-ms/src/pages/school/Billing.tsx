@@ -3,13 +3,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { useSchool } from '../../lib/auth';
 import { semesterLabel, unwrap, usePlatformSettings, useSemesters } from '../../lib/queries';
-import { formatDate, formatDateTime, formatMoney, humanize } from '../../lib/format';
-import { calculateBreakdown, summarize, PRICE_PER_STUDENT_PER_TERM } from '../../lib/billing';
+import { formatDate, formatDateTime, formatMoney, humanize, todayISO } from '../../lib/format';
+import { calculateBreakdown, summarize, PRICE_PER_STUDENT_PER_TERM, getTermGraceStatus, isSchoolSuspended } from '../../lib/billing';
 import { useToast } from '../../lib/toast';
 import type {
   BillingOverview,
   SchoolBillingConfig,
-  PaymentAuthorization,
 } from '../../lib/types';
 import {
   Alert,
@@ -50,20 +49,6 @@ export default function SchoolBillingPage() {
       try {
         return await unwrap<SchoolBillingConfig>(
           supabase.from('school_billing_configs').select('*').eq('school_id', schoolId).maybeSingle()
-        );
-      } catch (err: any) {
-        if (err?.code === 'PGRST205' || err?.message?.includes('schema cache')) return null;
-        throw err;
-      }
-    },
-  });
-
-  const cardAuthQuery = useQuery({
-    queryKey: ['school_card_auth', schoolId],
-    queryFn: async () => {
-      try {
-        return await unwrap<PaymentAuthorization>(
-          supabase.from('payment_authorizations').select('*').eq('school_id', schoolId).eq('reusable', true).maybeSingle()
         );
       } catch (err: any) {
         if (err?.code === 'PGRST205' || err?.message?.includes('schema cache')) return null;
@@ -128,9 +113,12 @@ export default function SchoolBillingPage() {
   });
 
   const cfg = configQuery.data;
+  const allBills = bills.data ?? [];
+  const mainBills = allBills.filter((b) => !b.is_topup);
+  const topupBills = allBills.filter((b) => b.is_topup);
 
   // Find active / current invoice
-  const currentBill = bills.data?.[0]; // Most recent invoice
+  const currentBill = mainBills.find((b) => b.is_current) || mainBills[0];
   const price = Number(cfg?.price_per_student ?? currentBill?.price_per_student ?? settings.data?.price_per_student ?? PRICE_PER_STUDENT_PER_TERM);
 
   // Active student count (fixed snapshot on current invoice if available, else active students count)
@@ -145,7 +133,13 @@ export default function SchoolBillingPage() {
   const breakdown = calculateBreakdown(count, price, discountType, discountVal, passMarkup, markupPct);
   const estimate = summarize(count, price, Number(currentBill?.amount_paid ?? 0), breakdown.discount, breakdown.feeMarkup);
 
-  const billingStatus = cfg?.status || schoolQuery.data?.status || 'active';
+  const suspended = isSchoolSuspended(schoolQuery.data?.status, cfg?.status);
+  const graceStatus = getTermGraceStatus(current?.starts_on, 30);
+  const inGracePeriod = graceStatus.inGrace && !currentBill;
+
+  // Outstanding bills (main or topup)
+  const unpaidBills = allBills.filter((b) => Number(b.balance) > 0);
+  const primaryUnpaidBill = unpaidBills[0];
 
   return (
     <>
@@ -153,35 +147,48 @@ export default function SchoolBillingPage() {
         title="School Billing & Subscription"
         subtitle={`Your agreed billing rate is ${formatMoney(price)} per student per term. Teachers never pay.`}
         actions={
-          currentBill && Number(currentBill.balance) > 0 ? (
-            <Button onClick={() => setPayingBill(currentBill)}>
-              💳 Pay Outstanding Bill via Paystack
+          primaryUnpaidBill ? (
+            <Button onClick={() => setPayingBill(primaryUnpaidBill)}>
+              💳 Pay Outstanding Bill ({formatMoney(primaryUnpaidBill.balance)})
             </Button>
           ) : undefined
         }
       />
 
-      {/* Subscription Status Alert if grace period or overdue */}
-      {billingStatus === 'grace_period' && (
+      {/* 1. Grace Period Banner: Term start 30-day grace period */}
+      {inGracePeriod && (
         <Alert tone="warn">
-          <strong>Grace Period Active:</strong> Your subscription payment is pending. Please complete your payment before{' '}
-          {formatDate(cfg?.grace_period_end) || 'the deadline'} to ensure uninterrupted platform access.
+          ℹ️ <strong>30-Day Grace Period Active:</strong> Your grace period ends on{' '}
+          <strong>{formatDate(graceStatus.graceEnd?.toISOString().slice(0, 10))}</strong>. Register all students before then.
+          No invoice is issued yet. On Day 30, the student count will be snapshotted and the term invoice issued.
         </Alert>
       )}
 
-      {billingStatus === 'payment_overdue' && (
+      {/* 2. School Suspended Alert if overdue */}
+      {suspended && (
         <Alert tone="error">
-          <strong>Payment Overdue:</strong> The payment deadline has passed. Please settle your invoice immediately.
+          🚨 <strong>School Access Suspended:</strong> An overdue term or top-up invoice is unpaid. Platform access to school records is paused.
+          Please settle your outstanding invoice immediately to restore full access.
         </Alert>
       )}
 
-      {/* 1. School Billing Arrangement Overview */}
+      {/* 3. Warning banner from Day 30 invoice issue until paid */}
+      {!suspended && !inGracePeriod && currentBill && Number(currentBill.balance) > 0 && (
+        <Alert tone="warn">
+          ⚠️ <strong>Term Invoice Issued:</strong> Your term invoice of{' '}
+          <strong>{formatMoney(currentBill.total_payable || currentBill.amount_due)}</strong> was issued on{' '}
+          {formatDate(currentBill.issue_date || currentBill.created_at)}. Payment is due on{' '}
+          <strong>{formatDate(currentBill.due_date)}</strong>. Please pay before the due date to avoid school suspension.
+        </Alert>
+      )}
+
+      {/* Account Overview Card */}
       <Card title="Billing Arrangement & Account Overview">
         <div className="stats">
           <StatCard
             label="Rate per Student"
             value={<span style={{ color: 'var(--primary)', fontWeight: 'bold' }}>{formatMoney(price)}</span>}
-            hint="Per term billing rate"
+            hint="GHS 3.00 standard per term"
           />
           <StatCard
             label="Billing Frequency"
@@ -191,43 +198,45 @@ export default function SchoolBillingPage() {
                 tone="good"
               />
             }
-            hint="One invoice generated per academic term"
+            hint="One invoice per term + post-snapshot top-ups"
           />
           <StatCard
             label="Subscription Status"
             value={
               <Badge
-                value={billingStatus}
-                tone={billingStatus === 'active' ? 'good' : billingStatus === 'grace_period' ? 'warn' : 'bad'}
+                value={suspended ? 'suspended' : inGracePeriod ? 'grace_period' : (currentBill && Number(currentBill.balance) > 0 ? 'awaiting_payment' : 'active')}
+                tone={suspended ? 'bad' : inGracePeriod ? 'warn' : (currentBill && Number(currentBill.balance) > 0 ? 'warn' : 'good')}
               />
             }
-            hint={cfg?.next_billing_date ? `Next billing: ${formatDate(cfg.next_billing_date)}` : undefined}
+            hint={inGracePeriod ? `Grace ends: ${formatDate(graceStatus.graceEnd?.toISOString().slice(0, 10))}` : currentBill?.due_date ? `Due: ${formatDate(currentBill.due_date)}` : 'Active'}
           />
           <StatCard
             label="Outstanding Balance"
-            value={formatMoney(currentBill ? currentBill.balance : estimate.balance)}
-            tone={Number(currentBill?.balance ?? estimate.balance) > 0 ? 'warn' : 'good'}
-            hint={currentBill?.due_date ? `Due ${formatDate(currentBill.due_date)}` : undefined}
+            value={formatMoney(unpaidBills.reduce((acc, b) => acc + Number(b.balance), 0))}
+            tone={unpaidBills.length > 0 ? 'warn' : 'good'}
+            hint={primaryUnpaidBill?.due_date ? `Due ${formatDate(primaryUnpaidBill.due_date)}` : 'All clear'}
           />
         </div>
 
         <div style={{ marginTop: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
           <div className="muted small">
-            <span>Payment terms: </span>
-            <strong>{cfg?.due_days ?? 14} days deadline</strong>
+            <span>Flow terms: </span>
+            <strong>30-day term start grace period</strong>
             <span> · </span>
-            <strong>{cfg?.grace_period_days ?? 7} days grace period</strong>
-            {cardAuthQuery.data && (
+            <strong>Day 30 snapshot invoice</strong>
+            <span> · </span>
+            <strong>7-day payment deadline</strong>
+            {cfg?.pending_topup_count ? (
               <>
                 <span> · </span>
-                <span style={{ color: 'var(--primary)' }}>
-                  💳 Saved Card for Auto-Renewal: {cardAuthQuery.data.card_type?.toUpperCase()} •••• {cardAuthQuery.data.last4} ({cardAuthQuery.data.bank || 'Bank'})
+                <span style={{ color: 'var(--warn)', fontWeight: 600 }}>
+                  +{cfg.pending_topup_count} Pending Top-up Students
                 </span>
               </>
-            )}
+            ) : null}
           </div>
           <div className="muted small">
-            <em>Custom pricing and billing arrangements are configured by the Platform Super Admin.</em>
+            <em>Per-term billing at GHS 3.00 per student per term.</em>
           </div>
         </div>
       </Card>
@@ -315,6 +324,76 @@ export default function SchoolBillingPage() {
 
       <div style={{ height: 16 }} />
 
+      {/* Top-up Invoices Section */}
+      <Card
+        title={`Top-up Invoices · Students Added After Snapshot (${topupBills.length})`}
+        padded={false}
+      >
+        <div style={{ padding: '12px 16px 0', borderBottom: '1px solid var(--border)' }}>
+          <p className="muted small" style={{ margin: '0 0 10px' }}>
+            Students registered after the Day 30 snapshot are billed via top-up invoices (due 7 days after issue).
+          </p>
+        </div>
+        {!topupBills.length ? (
+          <div style={{ padding: 16 }}>
+            <p className="muted" style={{ margin: 0 }}>
+              No top-up invoices. Any student enrolled after the Day 30 snapshot will automatically generate a top-up invoice.
+            </p>
+          </div>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Invoice #</th>
+                  <th>Description</th>
+                  <th className="num">Students</th>
+                  <th className="num">Rate</th>
+                  <th className="num">Calculation</th>
+                  <th className="num">Total</th>
+                  <th className="num">Balance</th>
+                  <th>Status</th>
+                  <th>Issued</th>
+                  <th>Due Date</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {topupBills.map((b) => (
+                  <tr key={b.id}>
+                    <td className="mono small">{b.invoice_number || 'TOP-UP'}</td>
+                    <td>{b.period_label || 'Top-up Invoice'}</td>
+                    <td className="num">+{b.student_count}</td>
+                    <td className="num">{formatMoney(b.price_per_student)}</td>
+                    <td className="num muted" style={{ fontSize: '0.85rem' }}>
+                      {b.student_count} × {formatMoney(b.price_per_student)} = {formatMoney(b.student_count * b.price_per_student)}
+                    </td>
+                    <td className="num"><strong>{formatMoney(b.total_payable ?? b.amount_due)}</strong></td>
+                    <td className="num"><strong style={{ color: Number(b.balance) > 0 ? 'var(--warn)' : 'var(--green)' }}>{formatMoney(b.balance)}</strong></td>
+                    <td><Badge value={b.payment_status} /></td>
+                    <td className="small">{formatDate(b.issue_date || b.created_at)}</td>
+                    <td className="small">
+                      <span style={{ color: b.due_date && b.due_date < todayISO() && Number(b.balance) > 0 ? 'var(--red)' : undefined }}>
+                        {formatDate(b.due_date)}
+                      </span>
+                    </td>
+                    <td>
+                      {Number(b.balance) > 0 && (
+                        <Button size="sm" onClick={() => setPayingBill(b)}>
+                          Pay Top-up
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      <div style={{ height: 16 }} />
+
       {/* 3. Invoices History Table */}
       <Card title="Invoice History" padded={false}>
         <ErrorBox error={bills.error} />
@@ -327,14 +406,14 @@ export default function SchoolBillingPage() {
             <table>
               <thead>
                 <tr>
-                  <th>Period</th>
-                  <th>Billing Model</th>
-                  <th className="num">Active Students</th>
+                  <th>Period / Type</th>
+                  <th>Calculation</th>
+                  <th className="num">Active / Top-up Students</th>
                   <th className="num">Due</th>
                   <th className="num">Paid</th>
                   <th className="num">Balance</th>
                   <th>Status</th>
-                  <th>Deadline</th>
+                  <th>Due Date</th>
                   <th></th>
                 </tr>
               </thead>
@@ -346,13 +425,12 @@ export default function SchoolBillingPage() {
                       {b.invoice_number && <div className="mono muted small">{b.invoice_number}</div>}
                       {b.snapshot_date && <div className="muted" style={{ fontSize: '0.78rem' }}>Snapshot: {formatDate(b.snapshot_date)}</div>}
                     </td>
-                    <td>
-                      <Badge
-                        value={b.billing_frequency === 'monthly' ? 'Monthly (Legacy)' : 'Per Term'}
-                        tone={b.billing_frequency === 'monthly' ? 'muted' : 'good'}
-                      />
+                    <td className="muted small">
+                      {b.student_count} students × {formatMoney(b.price_per_student)} = {formatMoney(b.student_count * b.price_per_student)}
                     </td>
-                    <td className="num">{b.student_count}</td>
+                    <td className="num">
+                      <span style={{ fontWeight: 600 }}>{b.is_topup ? `+${b.student_count}` : b.student_count}</span>
+                    </td>
                     <td className="num">
                       <strong>{formatMoney(b.total_payable ?? b.amount_due, b.currency)}</strong>
                     </td>
@@ -526,30 +604,45 @@ function PaystackCheckoutModal({
             save_card_for_recurring: saveCard,
           },
           callback: async (response: any) => {
-            // Verify payment securely on backend
+            // Strictly enforce rule: only the webhook marks an invoice as paid, never the redirect.
             setLoading(true);
             try {
-              const verifyRes = await fetch('/api/billing/paystack-verify', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  Authorization: `Bearer ${token}`,
-                },
-                body: JSON.stringify({
-                  reference: response.reference || reference,
-                }),
-              });
+              const ref = response.reference || reference;
+              // Poll verify endpoint: only webhook marks invoice as paid!
+              let attempts = 0;
+              let paidConfirmed = false;
+              while (attempts < 5 && !paidConfirmed) {
+                const verifyRes = await fetch('/api/billing/paystack-verify', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
+                  },
+                  body: JSON.stringify({ reference: ref }),
+                });
 
-              const verifyData = await verifyRes.json();
-              if (!verifyRes.ok || verifyData.status !== 'success') {
-                throw new Error(verifyData.error || 'Payment verification failed server-side');
+                const verifyData = await verifyRes.json();
+                if (verifyData.paid) {
+                  paidConfirmed = true;
+                  break;
+                }
+                attempts++;
+                if (attempts < 5) {
+                  await new Promise((r) => setTimeout(r, 1500));
+                }
               }
 
-              toast('Payment successful! Your invoice has been updated and subscription is active.');
+              if (paidConfirmed) {
+                toast('Payment successful! Confirmed by Paystack webhook.');
+              } else {
+                toast('Payment authorized by Paystack! The webhook is processing your invoice update.');
+              }
+
               qc.invalidateQueries({ queryKey: ['billing'] });
               qc.invalidateQueries({ queryKey: ['payments'] });
               qc.invalidateQueries({ queryKey: ['school_billing_config'] });
               qc.invalidateQueries({ queryKey: ['school_info'] });
+              qc.invalidateQueries({ queryKey: ['my_context'] });
               onClose();
             } catch (vErr: any) {
               setErrorMsg(vErr.message);

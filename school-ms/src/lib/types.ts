@@ -136,6 +136,8 @@ export interface SchoolBillingConfig {
   auto_charge_card: boolean;
   status: 'active' | 'payment_pending' | 'payment_overdue' | 'grace_period' | 'suspended' | 'cancelled';
   grace_period_end: string | null;
+  pending_topup_count?: number;
+  term_started_at?: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -168,9 +170,16 @@ export interface BillingOverview {
   grace_period_end?: string | null;
   invoice_number?: string | null;
   snapshot_date?: string | null;
+  issue_date?: string | null;
+  is_topup?: boolean;
+  parent_billing_id?: string | null;
+  term_starts_on?: string | null;
+  in_grace_period?: boolean;
+  days_remaining_in_grace?: number;
   last_paid_on?: string | null;
   notes: string | null;
   last_calculated_at: string | null;
+  created_at?: string;
   payment_status: 'no_charge' | 'unpaid' | 'partial' | 'paid' | 'overpaid';
   renewal_status: 'not_applicable' | 'renewed' | 'overdue' | 'pending' | 'suspended';
 }

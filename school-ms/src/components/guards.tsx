@@ -27,11 +27,25 @@ type Need = 'super_admin' | 'headmaster' | 'teacher';
 
 export function RequireRole({ need, children }: { need: Need; children: ReactNode }) {
   const { ctx, active } = useAuth();
+  const location = useLocation();
+
+  const isSuper = !!ctx?.is_super_admin;
+  const isSuspended = active?.school_status === 'suspended';
+
+  // Server & UI Access Rule:
+  // If school is suspended, headmaster and teachers only see the billing page with the invoice and Pay button.
+  if (!isSuper && isSuspended) {
+    if (location.pathname !== '/school/billing') {
+      return <Navigate to="/school/billing" replace />;
+    }
+    return <>{children}</>;
+  }
+
   const ok =
-    need === 'super_admin' ? !!ctx?.is_super_admin
-      : ctx?.is_super_admin ? true
-      : need === 'headmaster' ? active?.role === 'headmaster'
-        : active?.role === 'teacher' || active?.role === 'headmaster';
+    need === 'super_admin' ? isSuper
+      : isSuper ? true
+        : need === 'headmaster' ? active?.role === 'headmaster'
+          : active?.role === 'teacher' || active?.role === 'headmaster';
   if (!ok) return <Forbidden />;
   return <>{children}</>;
 }
@@ -60,6 +74,7 @@ export function NotFound() {
 export function RoleHome() {
   const { ctx, active } = useAuth();
   if (ctx?.is_super_admin) return <Navigate to="/admin" replace />;
+  if (active?.school_status === 'suspended') return <Navigate to="/school/billing" replace />;
   if (active?.role === 'headmaster') return <Navigate to="/school" replace />;
   if (active?.role === 'teacher') return <Navigate to="/teach" replace />;
   return <NoAccess />;

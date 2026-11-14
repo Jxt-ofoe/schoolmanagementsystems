@@ -1,4 +1,16 @@
-import { amountDue, billableCount, calculateBreakdown, paymentStatus, summarize, PRICE_PER_STUDENT_PER_TERM, type Registration } from '../billing';
+import {
+  amountDue,
+  billableCount,
+  calculateBreakdown,
+  paymentStatus,
+  summarize,
+  PRICE_PER_STUDENT_PER_TERM,
+  TERM_GRACE_PERIOD_DAYS,
+  INVOICE_PAYMENT_DUE_DAYS,
+  getTermGraceStatus,
+  isSchoolSuspended,
+  type Registration,
+} from '../billing';
 
 describe('billing: unique registered students × configured price', () => {
   it('counts each student once and excludes voided registrations', () => {
@@ -13,6 +25,7 @@ describe('billing: unique registered students × configured price', () => {
   it('uses the configured price (default GHS 3)', () => {
     expect(PRICE_PER_STUDENT_PER_TERM).toBe(3);
     expect(amountDue(10, 3)).toBe(30); // School A with 10 students: 10 * 3 = 30
+    expect(amountDue(120, 3)).toBe(360); // 120 students × GHS 3 = GHS 360
     expect(amountDue(150, 2)).toBe(300);
     expect(amountDue(150, 2.5)).toBe(375);
     expect(amountDue(3, 0.1)).toBe(0.3); // no float drift
@@ -25,6 +38,37 @@ describe('billing: unique registered students × configured price', () => {
     expect(paymentStatus(300, 301)).toBe('overpaid');
     const s = summarize(10, 3, 0);
     expect(s).toMatchObject({ count: 10, due: 30, balance: 30, status: 'unpaid', formula: '10 students × GHS 3.00 = GHS 30.00' });
+    const s120 = summarize(120, 3, 0);
+    expect(s120).toMatchObject({ count: 120, due: 360, balance: 360, status: 'unpaid', formula: '120 students × GHS 3.00 = GHS 360.00' });
+  });
+
+  it('calculates 30-day grace period status accurately', () => {
+    expect(TERM_GRACE_PERIOD_DAYS).toBe(30);
+    expect(INVOICE_PAYMENT_DUE_DAYS).toBe(7);
+
+    // If term started 5 days ago, should still be in grace period (25 days left)
+    const recentStart = new Date();
+    recentStart.setDate(recentStart.getDate() - 5);
+    const recentStatus = getTermGraceStatus(recentStart.toISOString().slice(0, 10));
+    expect(recentStatus.inGrace).toBe(true);
+    expect(recentStatus.daysRemaining).toBeGreaterThanOrEqual(24);
+
+    // If term started 35 days ago, grace period should be ended (0 days remaining)
+    const oldStart = new Date();
+    oldStart.setDate(oldStart.getDate() - 35);
+    const oldStatus = getTermGraceStatus(oldStart.toISOString().slice(0, 10));
+    expect(oldStatus.inGrace).toBe(false);
+    expect(oldStatus.daysRemaining).toBe(0);
+
+    // Null or invalid dates
+    expect(getTermGraceStatus(null).inGrace).toBe(false);
+  });
+
+  it('evaluates school suspension status accurately', () => {
+    expect(isSchoolSuspended('suspended', 'active')).toBe(true);
+    expect(isSchoolSuspended('active', 'payment_overdue')).toBe(true);
+    expect(isSchoolSuspended('active', 'suspended')).toBe(true);
+    expect(isSchoolSuspended('active', 'active')).toBe(false);
   });
 
   it('supports flexible pricing per school (e.g. GH₵3, GH₵4, GH₵5)', () => {
