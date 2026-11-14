@@ -186,8 +186,8 @@ export default function RenewalsPage() {
                     </td>
                     <td>
                       <Badge
-                        value={b.billing_frequency === 'monthly' ? 'Monthly' : 'Semester'}
-                        tone={b.billing_frequency === 'monthly' ? 'info' : 'good'}
+                        value={b.billing_frequency === 'monthly' ? 'Monthly (Legacy)' : 'Per Term'}
+                        tone={b.billing_frequency === 'monthly' ? 'muted' : 'good'}
                       />
                     </td>
                     <td>
@@ -209,8 +209,8 @@ export default function RenewalsPage() {
                           b.renewal_status === 'renewed'
                             ? 'good'
                             : b.renewal_status === 'overdue'
-                            ? 'danger'
-                            : 'warn'
+                              ? 'danger'
+                              : 'warn'
                         }
                       >
                         {b.renewal_status}

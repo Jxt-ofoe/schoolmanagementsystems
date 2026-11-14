@@ -6,6 +6,7 @@ import { unwrap } from '../../lib/queries';
 import { paymentSchema, fieldErrors } from '../../lib/validation';
 import { friendlyError } from '../../lib/errors';
 import { formatDate, formatDateTime, formatMoney, humanize, todayISO } from '../../lib/format';
+import { PRICE_PER_STUDENT_PER_TERM } from '../../lib/billing';
 import { downloadCsv } from '../../lib/csv';
 import { useToast } from '../../lib/toast';
 import type {
@@ -44,9 +45,8 @@ export default function AdminBilling() {
   const qc = useQueryClient();
   const toast = useToast();
 
-  const [activeTab, setActiveTab] = useState<'invoices' | 'configs' | 'paystack' | 'reminders'>('invoices');
+  const [activeTab, setActiveTab] = useState<'current_term' | 'invoices' | 'configs' | 'paystack' | 'reminders'>('current_term');
   const [currentOnly, setCurrentOnly] = useState(false);
-  const [freqFilter, setFreqFilter] = useState<'all' | 'monthly' | 'semester'>('all');
   const [pStatus, setPStatus] = useState('');
   const [q, setQ] = useState('');
 
@@ -54,11 +54,11 @@ export default function AdminBilling() {
   const [configuringSchool, setConfiguringSchool] = useState<SchoolBillingConfig | null>(null);
   const [isNewConfig, setIsNewConfig] = useState(false);
   const [generatingForSchool, setGeneratingForSchool] = useState<SchoolOption | null>(null);
+  const [confirmGenerateAll, setConfirmGenerateAll] = useState(false);
   const [remindingBill, setRemindingBill] = useState<BillingOverview | null>(null);
   const [paying, setPaying] = useState<BillingOverview | null>(null);
   const [viewing, setViewing] = useState<BillingOverview | null>(null);
   const [terms, setTerms] = useState<BillingOverview | null>(null);
-  const [confirmRecurring, setConfirmRecurring] = useState(false);
 
   // Queries
   const schoolsQuery = useQuery({
@@ -128,39 +128,26 @@ export default function AdminBilling() {
     },
   });
 
-  // Recurring Card Charge Mutation
-  const runRecurring = useMutation({
+  const generateAllTermsMutation = useMutation({
     mutationFn: async () => {
-      const { data: session } = await supabase.auth.getSession();
-      const token = session.session?.access_token;
-      const res = await fetch('/api/billing/charge-recurring', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({}),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to execute recurring card charges');
-      return data;
+      const { data, error } = await supabase.rpc('generate_all_school_term_invoices');
+      if (error) throw error;
+      return data as { generated: number; skipped: number; errors: string[] };
     },
-    onSuccess: (data) => {
-      toast(`Recurring billing completed. Processed ${data.processed} school(s).`);
-      setConfirmRecurring(false);
+    onSuccess: (res) => {
+      toast(`Successfully generated ${res.generated} term invoice(s)! ${res.skipped ? `(${res.skipped} skipped without active term)` : ''}`);
+      setConfirmGenerateAll(false);
       qc.invalidateQueries({ queryKey: ['admin_billing'] });
       qc.invalidateQueries({ queryKey: ['admin_billing_configs'] });
-      qc.invalidateQueries({ queryKey: ['admin_paystack_transactions'] });
     },
     onError: (e) => {
       toast(friendlyError(e), 'error');
-      setConfirmRecurring(false);
+      setConfirmGenerateAll(false);
     },
   });
 
   const allBills = bills.data ?? [];
   const rows = allBills.filter((b) => {
-    if (freqFilter !== 'all' && b.billing_frequency !== freqFilter) return false;
     if (pStatus && b.payment_status !== pStatus && b.renewal_status !== pStatus) return false;
     if (q && !`${b.school_name} ${b.school_code} ${b.period_label || ''}`.toLowerCase().includes(q.toLowerCase())) return false;
     return true;
@@ -171,15 +158,12 @@ export default function AdminBilling() {
     const sName = c.schools?.name || '';
     const sCode = c.schools?.code || '';
     if (q && !`${sName} ${sCode}`.toLowerCase().includes(q.toLowerCase())) return false;
-    if (freqFilter !== 'all' && c.billing_frequency !== freqFilter) return false;
     if (pStatus && c.status !== pStatus) return false;
     return true;
   });
 
   // Calculate Metrics
   const activeSchoolsCount = schoolsQuery.data?.filter((s) => s.status === 'active').length ?? 0;
-  const monthlyCount = allConfigs.filter((c) => c.billing_frequency === 'monthly').length;
-  const semesterCount = allConfigs.filter((c) => c.billing_frequency === 'semester').length;
   const overdueCount = allBills.filter((b) => b.renewal_status === 'overdue' && b.balance > 0).length;
 
   const totals = rows.reduce(
@@ -195,8 +179,8 @@ export default function AdminBilling() {
   return (
     <>
       <PageHeader
-        title="School billing & Paystack payments"
-        subtitle="Configure custom pricing and frequencies (monthly or semester) per school, monitor Paystack transactions, and manage billing."
+        title="School billing & Term invoices"
+        subtitle={`Standard rate: ${formatMoney(PRICE_PER_STUDENT_PER_TERM)} per student per term (active students snapshot × price per student).`}
         actions={
           <>
             <Button
@@ -209,13 +193,14 @@ export default function AdminBilling() {
               + Configure School
             </Button>
             <Button
-              variant="secondary"
-              onClick={() => setConfirmRecurring(true)}
-              title="Charge saved cards for monthly schools"
+              variant="primary"
+              onClick={() => setConfirmGenerateAll(true)}
+              title="Generate term invoices for all active schools with active terms"
             >
-              ⚡ Run Monthly Charges
+              ⚡ Generate Invoices for All Schools
             </Button>
             <Button
+              variant="secondary"
               onClick={() => {
                 const s = schoolsQuery.data?.[0];
                 if (s) setGeneratingForSchool(s);
@@ -257,7 +242,7 @@ export default function AdminBilling() {
 
       {/* Top Metrics Cards */}
       <div className="stats">
-        <StatCard label="Active schools" value={activeSchoolsCount} hint={`${monthlyCount} Monthly · ${semesterCount} Semester`} />
+        <StatCard label="Active schools" value={activeSchoolsCount} hint={`${activeSchoolsCount} schools on per-term billing`} />
         <StatCard label="Total payments collected" value={formatMoney(totals.paid)} tone="good" hint="Verified via Paystack & offline" />
         <StatCard label="Outstanding invoices" value={formatMoney(totals.bal)} tone={totals.bal > 0 ? 'warn' : 'good'} />
         <StatCard label="Overdue schools" value={overdueCount} tone={overdueCount > 0 ? 'bad' : 'good'} hint="Payment deadline passed" />
@@ -267,7 +252,8 @@ export default function AdminBilling() {
         <div style={{ padding: '16px 16px 0' }}>
           <Tabs
             tabs={[
-              { id: 'invoices', label: `Invoices & Billing (${rows.length})` },
+              { id: 'current_term', label: `Current Term Status (${activeSchoolsCount})` },
+              { id: 'invoices', label: `All Term Invoices (${rows.length})` },
               { id: 'configs', label: `School Configurations (${allConfigs.length})` },
               { id: 'paystack', label: `Paystack Transactions (${paystackTxQuery.data?.length ?? 0})` },
               { id: 'reminders', label: `Reminders Sent (${remindersQuery.data?.length ?? 0})` },
@@ -280,15 +266,12 @@ export default function AdminBilling() {
         {/* Filters */}
         <div className="filters" style={{ padding: '12px 16px 12px' }}>
           <SearchBox value={q} onChange={setQ} placeholder="Search schools..." />
-          <Select label="Scope" value={currentOnly ? 'current' : 'all'} onChange={(e) => setCurrentOnly(e.target.value === 'current')}>
-            <option value="all">All cycles</option>
-            <option value="current">Current only</option>
-          </Select>
-          <Select label="Frequency" value={freqFilter} onChange={(e) => setFreqFilter(e.target.value as any)}>
-            <option value="all">All frequencies</option>
-            <option value="monthly">Monthly billing</option>
-            <option value="semester">Semester billing</option>
-          </Select>
+          {activeTab === 'invoices' && (
+            <Select label="Scope" value={currentOnly ? 'current' : 'all'} onChange={(e) => setCurrentOnly(e.target.value === 'current')}>
+              <option value="all">All terms</option>
+              <option value="current">Current term only</option>
+            </Select>
+          )}
           <Select label="Status" value={pStatus} onChange={(e) => setPStatus(e.target.value)}>
             <option value="">Any status</option>
             <option value="active">Active</option>
@@ -330,6 +313,121 @@ export default function AdminBilling() {
           )}
         </div>
 
+        {/* Tab 0: Current Term Status Across All Schools */}
+        {activeTab === 'current_term' && (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>School</th>
+                  <th>Current Term</th>
+                  <th>Student Snapshot</th>
+                  <th>Rate</th>
+                  <th className="num">Term Bill</th>
+                  <th className="num">Paid</th>
+                  <th className="num">Balance</th>
+                  <th>Payment Status</th>
+                  <th>Due Date</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {schoolsQuery.isLoading ? (
+                  <tr><td colSpan={10}><Spinner /></td></tr>
+                ) : !schoolsQuery.data?.filter(s => s.status === 'active').length ? (
+                  <tr><td colSpan={10}><EmptyState title="No active schools found" /></td></tr>
+                ) : (
+                  schoolsQuery.data
+                    .filter((s) => s.status === 'active')
+                    .filter((s) => !q || `${s.name} ${s.code}`.toLowerCase().includes(q.toLowerCase()))
+                    .map((s) => {
+                      // Find most recent or current term invoice for this school
+                      const schoolBill = allBills.find((b) => b.school_id === s.id && (b.is_current || !b.billing_month));
+                      const schoolCfg = allConfigs.find((c) => c.school_id === s.id);
+                      const priceRate = Number(schoolBill?.price_per_student ?? schoolCfg?.price_per_student ?? PRICE_PER_STUDENT_PER_TERM);
+
+                      return (
+                        <tr key={s.id}>
+                          <td>
+                            <Link to={`/admin/schools/${s.id}`}>
+                              <strong>{s.name}</strong>
+                            </Link>
+                            <div className="muted small">{s.code}</div>
+                          </td>
+                          <td>
+                            {schoolBill ? (
+                              <>
+                                <strong>{schoolBill.period_label || schoolBill.semester_name || 'Current Term'}</strong>
+                                {schoolBill.snapshot_date && (
+                                  <div className="muted small">Snapshot: {formatDate(schoolBill.snapshot_date)}</div>
+                                )}
+                              </>
+                            ) : (
+                              <span className="muted">No term invoice yet</span>
+                            )}
+                          </td>
+                          <td>
+                            {schoolBill ? (
+                              <span><strong>{schoolBill.student_count}</strong> active students</span>
+                            ) : (
+                              <span className="muted">—</span>
+                            )}
+                          </td>
+                          <td>{formatMoney(priceRate)} / student</td>
+                          <td className="num">
+                            {schoolBill ? (
+                              <strong>{formatMoney(schoolBill.total_payable ?? schoolBill.amount_due)}</strong>
+                            ) : (
+                              <span className="muted">—</span>
+                            )}
+                          </td>
+                          <td className="num" style={{ color: 'var(--green)' }}>
+                            {schoolBill ? formatMoney(schoolBill.amount_paid) : '—'}
+                          </td>
+                          <td className="num">
+                            {schoolBill ? (
+                              <strong style={{ color: schoolBill.balance > 0 ? 'var(--warn)' : 'var(--green)' }}>
+                                {formatMoney(schoolBill.balance)}
+                              </strong>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                          <td>
+                            {schoolBill ? (
+                              <Badge value={schoolBill.payment_status} />
+                            ) : (
+                              <Badge value="Not Invoiced" tone="muted" />
+                            )}
+                          </td>
+                          <td className="small">
+                            {schoolBill?.due_date ? formatDate(schoolBill.due_date) : '—'}
+                          </td>
+                          <td>
+                            <div className="table-actions">
+                              <Button
+                                size="sm"
+                                variant={schoolBill ? 'secondary' : 'primary'}
+                                onClick={() => setGeneratingForSchool(s)}
+                              >
+                                {schoolBill ? 'Re-generate' : 'Generate Invoice'}
+                              </Button>
+                              {schoolBill && schoolBill.balance > 0 && (
+                                <Button size="sm" onClick={() => setPaying(schoolBill)}>
+                                  Record Offline
+                                </Button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
         {/* Tab 1: Invoices */}
         {activeTab === 'invoices' && (
           <>
@@ -338,7 +436,7 @@ export default function AdminBilling() {
               <Spinner />
             ) : !rows.length ? (
               <EmptyState title="No billing records match filters">
-                Use “Generate Bill” to issue a new monthly or semester invoice.
+                Use “Generate Bill” or “Generate Invoices for All Schools” to issue term invoices.
               </EmptyState>
             ) : (
               <div className="table-wrap">
@@ -346,9 +444,9 @@ export default function AdminBilling() {
                   <thead>
                     <tr>
                       <th>School</th>
-                      <th>Frequency</th>
-                      <th>Period</th>
-                      <th>Calculation</th>
+                      <th>Billing Model</th>
+                      <th>Period & Term</th>
+                      <th>Calculation Formula</th>
                       <th className="num">Due</th>
                       <th className="num">Paid</th>
                       <th className="num">Balance</th>
@@ -368,24 +466,27 @@ export default function AdminBilling() {
                         </td>
                         <td>
                           <Badge
-                            value={b.billing_frequency === 'monthly' ? 'Monthly' : 'Semester'}
-                            tone={b.billing_frequency === 'monthly' ? 'info' : 'good'}
+                            value={b.billing_frequency === 'monthly' ? 'Monthly (Legacy)' : 'Per Term'}
+                            tone={b.billing_frequency === 'monthly' ? 'muted' : 'good'}
                           />
                         </td>
                         <td className="small">
-                          <strong>{b.period_label || b.semester_name || 'Current'}</strong>
+                          <strong>{b.period_label || b.semester_name || 'Term Invoice'}</strong>
                           <div className="muted">due {formatDate(b.due_date)}</div>
+                          {b.snapshot_date && (
+                            <div className="muted" style={{ fontSize: '0.78rem' }}>Snapshot: {formatDate(b.snapshot_date)}</div>
+                          )}
                         </td>
                         <td className="nowrap small">
-                          {b.student_count} × {formatMoney(b.price_per_student, b.currency)}
+                          <strong>{b.student_count} students × {formatMoney(b.price_per_student, b.currency)} = {formatMoney(b.student_count * b.price_per_student, b.currency)}</strong>
                           {Number(b.discount_amount) > 0 && (
                             <div className="muted" style={{ color: 'var(--green)' }}>
-                              - {formatMoney(b.discount_amount, b.currency)} disc.
+                              - {formatMoney(b.discount_amount, b.currency)} discount
                             </div>
                           )}
                           {Number(b.fee_markup_amount) > 0 && (
                             <div className="muted" style={{ fontSize: '0.8rem' }}>
-                              + {formatMoney(b.fee_markup_amount, b.currency)} (3% fee)
+                              + {formatMoney(b.fee_markup_amount, b.currency)} (3% processing fee)
                             </div>
                           )}
                         </td>
@@ -464,8 +565,8 @@ export default function AdminBilling() {
                     </td>
                     <td>
                       <Badge
-                        value={c.billing_frequency === 'monthly' ? 'Monthly' : 'Semester'}
-                        tone={c.billing_frequency === 'monthly' ? 'info' : 'good'}
+                        value="Per Term"
+                        tone="good"
                       />
                     </td>
                     <td className="small">{formatDate(c.billing_start_date)}</td>
@@ -497,10 +598,10 @@ export default function AdminBilling() {
                           c.status === 'active'
                             ? 'good'
                             : c.status === 'grace_period'
-                            ? 'warn'
-                            : c.status === 'suspended'
-                            ? 'bad'
-                            : 'info'
+                              ? 'warn'
+                              : c.status === 'suspended'
+                                ? 'bad'
+                                : 'info'
                         }
                       />
                     </td>
@@ -687,13 +788,13 @@ export default function AdminBilling() {
       {terms && <TermsModal bill={terms} onClose={() => setTerms(null)} />}
 
       <ConfirmDialog
-        open={confirmRecurring}
-        title="Execute Recurring Card Billing"
-        confirmLabel="Charge Eligible Schools"
-        loading={runRecurring.isPending}
-        message="This will automatically charge saved Paystack cards for all active monthly billing schools whose billing dates have arrived. Receipts will be recorded and schools notified."
-        onCancel={() => setConfirmRecurring(false)}
-        onConfirm={() => runRecurring.mutate()}
+        open={confirmGenerateAll}
+        title="Generate Term Invoices for All Schools"
+        confirmLabel="Generate All Invoices"
+        loading={generateAllTermsMutation.isPending}
+        message="This will generate a term invoice for every active school that has an active term, snapshotting their active student count and applying their configured rate (default GHS 3.00/student). Already-issued invoices will remain safely preserved."
+        onCancel={() => setConfirmGenerateAll(false)}
+        onConfirm={() => generateAllTermsMutation.mutate()}
       />
     </>
   );
@@ -715,8 +816,7 @@ function ConfigureBillingModal({
   const toast = useToast();
 
   const [schoolId, setSchoolId] = useState(config?.school_id || schools[0]?.id || '');
-  const [price, setPrice] = useState(String(config?.price_per_student ?? 5.0));
-  const [frequency, setFrequency] = useState<'monthly' | 'semester'>(config?.billing_frequency ?? 'semester');
+  const [price, setPrice] = useState(String(config?.price_per_student ?? PRICE_PER_STUDENT_PER_TERM));
   const [startDate, setStartDate] = useState(config?.billing_start_date ?? todayISO());
   const [nextDate, setNextDate] = useState(config?.next_billing_date ?? '');
   const [dueDays, setDueDays] = useState(String(config?.due_days ?? 14));
@@ -725,7 +825,7 @@ function ConfigureBillingModal({
   const [discountValue, setDiscountValue] = useState(String(config?.discount_value ?? 0));
   const [passMarkup, setPassMarkup] = useState(config?.pass_fee_markup ?? true);
   const [markupPercent, setMarkupPercent] = useState(String(config?.fee_markup_percent ?? 3.0));
-  const [autoCharge, setAutoCharge] = useState(config?.auto_charge_card ?? false);
+  const [autoCharge] = useState(config?.auto_charge_card ?? false);
   const [status, setStatus] = useState(config?.status ?? 'active');
   const [notes, setNotes] = useState(config?.notes ?? '');
 
@@ -737,7 +837,7 @@ function ConfigureBillingModal({
       const { error } = await supabase.rpc('upsert_school_billing_config', {
         p_school_id: schoolId,
         p_price_per_student: p,
-        p_billing_frequency: frequency,
+        p_billing_frequency: 'term',
         p_billing_start_date: startDate,
         p_next_billing_date: nextDate || null,
         p_due_days: Number(dueDays) || 14,
@@ -795,23 +895,20 @@ function ConfigureBillingModal({
 
       <div className="form-grid">
         <Input
-          label="Price per student (GH₵)"
+          label="Price per student per term (GH₵)"
           type="number"
           step="0.01"
           min="0"
           value={price}
           onChange={(e) => setPrice(e.target.value)}
-          hint="Every school can have an independent rate (e.g. GH₵3, GH₵4, GH₵5)"
+          hint="Per-term rate for this school (default GHS 3.00)"
           required
         />
-        <Select
+        <Input
           label="Billing Frequency"
-          value={frequency}
-          onChange={(e) => setFrequency(e.target.value as any)}
-        >
-          <option value="semester">Semester Billing</option>
-          <option value="monthly">Monthly Billing</option>
-        </Select>
+          value="Per Term"
+          disabled
+        />
         <Input
           label="Billing Start Date"
           type="date"
@@ -895,16 +992,6 @@ function ConfigureBillingModal({
           />
           <strong>Pass 3% Paystack payment fee to school</strong> (Itemized clearly on checkout)
         </label>
-        {frequency === 'monthly' && (
-          <label className="checkbox" style={{ display: 'block' }}>
-            <input
-              type="checkbox"
-              checked={autoCharge}
-              onChange={(e) => setAutoCharge(e.target.checked)}
-            />
-            <strong>Authorize automatic monthly card charge</strong> (Requires saved card authorization)
-          </label>
-        )}
       </div>
 
       <div style={{ marginTop: 16 }}>
@@ -982,12 +1069,12 @@ function GenerateInvoiceModal({
 
       <div className="card-plain" style={{ background: 'var(--subtle)', padding: 16, borderRadius: 8, marginBottom: 16 }}>
         <div className="kv">
-          <span>Configured Frequency:</span>
-          <strong>{cfg?.billing_frequency === 'monthly' ? 'Monthly Billing' : 'Semester Billing'}</strong>
+          <span>Billing Model:</span>
+          <strong>Per-Term Billing</strong>
         </div>
         <div className="kv">
           <span>Configured Price:</span>
-          <strong>{formatMoney(cfg?.price_per_student ?? 5.0)} / registered student</strong>
+          <strong>{formatMoney(cfg?.price_per_student ?? PRICE_PER_STUDENT_PER_TERM)} / student per term</strong>
         </div>
         <div className="kv">
           <span>Payment Processing Markup:</span>
@@ -996,11 +1083,11 @@ function GenerateInvoiceModal({
       </div>
 
       <Input
-        label={cfg?.billing_frequency === 'monthly' ? 'Billing Month / Period Date' : 'Invoice Date'}
+        label="Term Invoice Date"
         type="date"
         value={periodDate}
         onChange={(e) => setPeriodDate(e.target.value)}
-        hint="Invoice calculation will count students and apply discounts/markups automatically without duplicate risk."
+        hint="Invoice calculation snapshots active students and applies discounts/markups automatically without duplicate risk."
       />
     </Modal>
   );

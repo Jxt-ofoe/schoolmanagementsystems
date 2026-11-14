@@ -124,7 +124,7 @@ export interface SchoolBillingConfig {
   pricing_model: 'per_student' | 'flat_rate';
   price_per_student: number;
   flat_rate_amount: number;
-  billing_frequency: 'monthly' | 'semester';
+  billing_frequency: 'term' | 'semester' | 'monthly';
   billing_start_date: string;
   next_billing_date: string | null;
   due_days: number;
@@ -148,7 +148,7 @@ export interface BillingOverview {
   school_code: string;
   school_status: string;
   config_status?: string | null;
-  billing_frequency?: 'monthly' | 'semester';
+  billing_frequency?: 'term' | 'semester' | 'monthly';
   billing_month?: string | null;
   period_label?: string | null;
   semester_id: string | null;
@@ -167,6 +167,8 @@ export interface BillingOverview {
   due_date: string | null;
   grace_period_end?: string | null;
   invoice_number?: string | null;
+  snapshot_date?: string | null;
+  last_paid_on?: string | null;
   notes: string | null;
   last_calculated_at: string | null;
   payment_status: 'no_charge' | 'unpaid' | 'partial' | 'paid' | 'overpaid';
@@ -223,8 +225,9 @@ export interface BillingReminder {
 export interface PlatformBillingMetrics {
   total_schools: number;
   active_schools: number;
-  monthly_schools: number;
-  semester_schools: number;
+  monthly_schools?: number;
+  semester_schools?: number;
+  term_schools?: number;
   total_paid: number;
   total_due: number;
   outstanding: number;

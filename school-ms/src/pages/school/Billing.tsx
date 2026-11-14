@@ -4,7 +4,7 @@ import { supabase } from '../../lib/supabase';
 import { useSchool } from '../../lib/auth';
 import { semesterLabel, unwrap, usePlatformSettings, useSemesters } from '../../lib/queries';
 import { formatDate, formatDateTime, formatMoney, humanize } from '../../lib/format';
-import { calculateBreakdown, summarize } from '../../lib/billing';
+import { calculateBreakdown, summarize, PRICE_PER_STUDENT_PER_TERM } from '../../lib/billing';
 import { useToast } from '../../lib/toast';
 import type {
   BillingOverview,
@@ -128,14 +128,13 @@ export default function SchoolBillingPage() {
   });
 
   const cfg = configQuery.data;
-  const isMonthly = cfg?.billing_frequency === 'monthly';
 
   // Find active / current invoice
   const currentBill = bills.data?.[0]; // Most recent invoice
-  const price = Number(cfg?.price_per_student ?? currentBill?.price_per_student ?? settings.data?.price_per_student ?? 5.0);
+  const price = Number(cfg?.price_per_student ?? currentBill?.price_per_student ?? settings.data?.price_per_student ?? PRICE_PER_STUDENT_PER_TERM);
 
-  // Student count according to frequency
-  const count = isMonthly ? (activeStudentCount.data ?? 0) : (liveCount.data ?? 0);
+  // Active student count (fixed snapshot on current invoice if available, else active students count)
+  const count = currentBill?.student_count ?? activeStudentCount.data ?? liveCount.data ?? 0;
 
   // Breakdown calculation
   const discountType = cfg?.discount_type ?? 'none';
@@ -152,7 +151,7 @@ export default function SchoolBillingPage() {
     <>
       <PageHeader
         title="School Billing & Subscription"
-        subtitle={`Your agreed billing rate is ${formatMoney(price)} per registered student (${isMonthly ? 'Monthly billing' : 'Semester billing'}). Teachers never pay.`}
+        subtitle={`Your agreed billing rate is ${formatMoney(price)} per student per term. Teachers never pay.`}
         actions={
           currentBill && Number(currentBill.balance) > 0 ? (
             <Button onClick={() => setPayingBill(currentBill)}>
@@ -182,17 +181,17 @@ export default function SchoolBillingPage() {
           <StatCard
             label="Rate per Student"
             value={<span style={{ color: 'var(--primary)', fontWeight: 'bold' }}>{formatMoney(price)}</span>}
-            hint={`Agreed ${isMonthly ? 'monthly' : 'semester'} price`}
+            hint="Per term billing rate"
           />
           <StatCard
             label="Billing Frequency"
             value={
               <Badge
-                value={isMonthly ? 'Monthly Billing' : 'Semester Billing'}
-                tone={isMonthly ? 'info' : 'good'}
+                value="Per Term"
+                tone="good"
               />
             }
-            hint={isMonthly ? 'Billed at beginning of each month' : 'Billed once per academic semester'}
+            hint="One invoice generated per academic term"
           />
           <StatCard
             label="Subscription Status"
@@ -237,7 +236,7 @@ export default function SchoolBillingPage() {
 
       {/* 2. Current Invoice Card with Transparent Breakdown */}
       <Card
-        title={currentBill ? `Current Invoice · ${currentBill.period_label || 'Current Period'}` : `Estimated Bill · ${isMonthly ? 'Current Month' : (current ? semesterLabel(current) : 'Current Period')}`}
+        title={currentBill ? `Current Term Invoice · ${currentBill.period_label || 'Current Term'}` : `Estimated Bill · ${current ? semesterLabel(current) : 'Current Term'}`}
         actions={
           currentBill && Number(currentBill.balance) > 0 ? (
             <Button size="sm" onClick={() => setPayingBill(currentBill)}>
@@ -248,14 +247,14 @@ export default function SchoolBillingPage() {
       >
         <div className="stats">
           <StatCard
-            label={`Registered Students (${isMonthly ? 'Active' : 'Enrolled'})`}
+            label="Active Students (Term Snapshot)"
             value={count}
-            hint="Unique registered students"
+            hint={currentBill?.snapshot_date ? `Snapshotted: ${formatDate(currentBill.snapshot_date)}` : 'Active students count'}
           />
           <StatCard
-            label="Base Subscription"
+            label="Base Term Bill"
             value={formatMoney(currentBill ? currentBill.amount_due : estimate.subtotal)}
-            hint={`${count} students × ${formatMoney(price)}`}
+            hint={`${count} students × ${formatMoney(price)} = ${formatMoney(count * price)}`}
           />
           <StatCard
             label="Total Payable"
@@ -272,9 +271,15 @@ export default function SchoolBillingPage() {
 
         {/* Transparent Breakdown Display */}
         <div style={{ background: 'var(--subtle)', padding: 16, borderRadius: 8, marginTop: 16 }}>
-          <h4 style={{ margin: '0 0 10px', fontSize: '0.95rem' }}>Transparent Invoice Breakdown</h4>
+          <h4 style={{ margin: '0 0 10px', fontSize: '0.95rem' }}>Calculation & Invoice Breakdown</h4>
+          <div className="kv" style={{ fontSize: '1.05rem', marginBottom: 12, paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>
+            <span><strong>Term Bill Calculation:</strong></span>
+            <strong style={{ color: 'var(--primary)' }}>
+              {count} students × {formatMoney(price)} = {formatMoney(count * price)}
+            </strong>
+          </div>
           <div className="kv">
-            <span>Base Subscription ({count} students × {formatMoney(price)}):</span>
+            <span>Base Subscription:</span>
             <strong>{formatMoney(currentBill ? currentBill.amount_due : breakdown.subtotal)}</strong>
           </div>
           {(Number(currentBill?.discount_amount) > 0 || breakdown.discount > 0) && (
@@ -323,8 +328,8 @@ export default function SchoolBillingPage() {
               <thead>
                 <tr>
                   <th>Period</th>
-                  <th>Frequency</th>
-                  <th className="num">Students</th>
+                  <th>Billing Model</th>
+                  <th className="num">Active Students</th>
                   <th className="num">Due</th>
                   <th className="num">Paid</th>
                   <th className="num">Balance</th>
@@ -337,13 +342,14 @@ export default function SchoolBillingPage() {
                 {bills.data.map((b) => (
                   <tr key={b.id}>
                     <td>
-                      <strong>{b.period_label || b.semester_name || 'Invoice'}</strong>
+                      <strong>{b.period_label || b.semester_name || 'Term Invoice'}</strong>
                       {b.invoice_number && <div className="mono muted small">{b.invoice_number}</div>}
+                      {b.snapshot_date && <div className="muted" style={{ fontSize: '0.78rem' }}>Snapshot: {formatDate(b.snapshot_date)}</div>}
                     </td>
                     <td>
                       <Badge
-                        value={b.billing_frequency === 'monthly' ? 'Monthly' : 'Semester'}
-                        tone={b.billing_frequency === 'monthly' ? 'info' : 'good'}
+                        value={b.billing_frequency === 'monthly' ? 'Monthly (Legacy)' : 'Per Term'}
+                        tone={b.billing_frequency === 'monthly' ? 'muted' : 'good'}
                       />
                     </td>
                     <td className="num">{b.student_count}</td>

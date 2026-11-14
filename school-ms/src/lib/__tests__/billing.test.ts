@@ -1,4 +1,4 @@
-import { amountDue, billableCount, calculateBreakdown, paymentStatus, summarize, type Registration } from '../billing';
+import { amountDue, billableCount, calculateBreakdown, paymentStatus, summarize, PRICE_PER_STUDENT_PER_TERM, type Registration } from '../billing';
 
 describe('billing: unique registered students × configured price', () => {
   it('counts each student once and excludes voided registrations', () => {
@@ -10,7 +10,9 @@ describe('billing: unique registered students × configured price', () => {
     ];
     expect(billableCount(regs)).toBe(3);
   });
-  it('uses the configured price (default GH₵2)', () => {
+  it('uses the configured price (default GHS 3)', () => {
+    expect(PRICE_PER_STUDENT_PER_TERM).toBe(3);
+    expect(amountDue(10, 3)).toBe(30); // School A with 10 students: 10 * 3 = 30
     expect(amountDue(150, 2)).toBe(300);
     expect(amountDue(150, 2.5)).toBe(375);
     expect(amountDue(3, 0.1)).toBe(0.3); // no float drift
@@ -21,8 +23,8 @@ describe('billing: unique registered students × configured price', () => {
     expect(paymentStatus(300, 100)).toBe('partial');
     expect(paymentStatus(300, 300)).toBe('paid');
     expect(paymentStatus(300, 301)).toBe('overpaid');
-    const s = summarize(150, 2, 120.1);
-    expect(s).toMatchObject({ count: 150, due: 300, balance: 179.9, status: 'partial', formula: '150 × 2.00' });
+    const s = summarize(10, 3, 0);
+    expect(s).toMatchObject({ count: 10, due: 30, balance: 30, status: 'unpaid', formula: '10 students × GHS 3.00 = GHS 30.00' });
   });
 
   it('supports flexible pricing per school (e.g. GH₵3, GH₵4, GH₵5)', () => {

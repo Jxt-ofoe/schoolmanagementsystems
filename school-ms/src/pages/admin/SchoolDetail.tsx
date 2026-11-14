@@ -147,14 +147,14 @@ export default function AdminSchoolDetail() {
               <div className="kv">
                 <span>Pricing Rate:</span>
                 <strong style={{ color: 'var(--primary)', fontSize: '1.05rem' }}>
-                  {formatMoney(billingConfig.data?.price_per_student ?? 5.0)} / student
+                  {formatMoney(billingConfig.data?.price_per_student ?? 3.0)} / student / term
                 </strong>
               </div>
               <div className="kv">
                 <span>Billing Frequency:</span>
                 <Badge
-                  value={billingConfig.data?.billing_frequency === 'monthly' ? 'Monthly' : 'Semester'}
-                  tone="info"
+                  value="Per Term"
+                  tone="good"
                 />
               </div>
               <div className="kv">
@@ -370,8 +370,7 @@ function SchoolBillingConfigModal({
   const qc = useQueryClient();
   const toast = useToast();
 
-  const [price, setPrice] = useState(String(initialConfig?.price_per_student ?? 5.0));
-  const [frequency, setFrequency] = useState<'monthly' | 'semester'>(initialConfig?.billing_frequency ?? 'semester');
+  const [price, setPrice] = useState(String(initialConfig?.price_per_student ?? 3.0));
   const [startDate, setStartDate] = useState(initialConfig?.billing_start_date ?? new Date().toISOString().slice(0, 10));
   const [nextDate, setNextDate] = useState(initialConfig?.next_billing_date ?? '');
   const [dueDays, setDueDays] = useState(String(initialConfig?.due_days ?? 14));
@@ -380,7 +379,7 @@ function SchoolBillingConfigModal({
   const [discountValue, setDiscountValue] = useState(String(initialConfig?.discount_value ?? 0));
   const [passMarkup, setPassMarkup] = useState(initialConfig?.pass_fee_markup !== false);
   const [markupPercent, setMarkupPercent] = useState(String(initialConfig?.fee_markup_percent ?? 3.0));
-  const [autoCharge, setAutoCharge] = useState(initialConfig?.auto_charge_card ?? false);
+  const [autoCharge] = useState(initialConfig?.auto_charge_card ?? false);
   const [status, setStatus] = useState(initialConfig?.status ?? 'active');
   const [notes, setNotes] = useState(initialConfig?.notes ?? '');
 
@@ -392,7 +391,7 @@ function SchoolBillingConfigModal({
       const { error } = await supabase.rpc('upsert_school_billing_config', {
         p_school_id: schoolId,
         p_price_per_student: p,
-        p_billing_frequency: frequency,
+        p_billing_frequency: 'term',
         p_billing_start_date: startDate,
         p_next_billing_date: nextDate || null,
         p_due_days: Number(dueDays) || 14,
@@ -439,23 +438,20 @@ function SchoolBillingConfigModal({
 
       <div className="form-grid">
         <Input
-          label="Price per student (GH₵)"
+          label="Price per student per term (GH₵)"
           type="number"
           step="0.01"
           min="0"
           value={price}
           onChange={(e) => setPrice(e.target.value)}
-          hint="Independent price for this specific school (e.g. GH₵3, GH₵4, GH₵5)"
+          hint="Configured term price for this specific school (default GHS 3.00)"
           required
         />
-        <Select
+        <Input
           label="Billing Frequency"
-          value={frequency}
-          onChange={(e) => setFrequency(e.target.value as any)}
-        >
-          <option value="semester">Semester Billing</option>
-          <option value="monthly">Monthly Billing</option>
-        </Select>
+          value="Per Term"
+          disabled
+        />
         <Input
           label="Billing Start Date"
           type="date"
@@ -536,16 +532,6 @@ function SchoolBillingConfigModal({
           />
           <strong>Pass 3% Paystack payment fee to school</strong> (Itemized clearly on checkout)
         </label>
-        {frequency === 'monthly' && (
-          <label className="checkbox" style={{ display: 'block' }}>
-            <input
-              type="checkbox"
-              checked={autoCharge}
-              onChange={(e) => setAutoCharge(e.target.checked)}
-            />
-            <strong>Authorize automatic monthly card charge</strong> (Requires saved card authorization)
-          </label>
-        )}
       </div>
 
       <div style={{ marginTop: 16 }}>
