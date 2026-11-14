@@ -10,17 +10,21 @@ export async function handlePaystackWebhook(rawBody, signature) {
   }
 
   const webhookSecret = process.env.PAYSTACK_WEBHOOK_SECRET || process.env.PAYSTACK_SECRET_KEY;
+  if (!webhookSecret) {
+    throw new Error('Server configuration error: PAYSTACK_WEBHOOK_SECRET is not configured');
+  }
 
-  // 1. Verify HMAC SHA-512 signature
-  if (webhookSecret && !webhookSecret.includes('placeholder')) {
-    const hash = crypto
-      .createHmac('sha512', webhookSecret)
-      .update(typeof rawBody === 'string' ? rawBody : JSON.stringify(rawBody))
-      .digest('hex');
+  // 1. Verify HMAC SHA-512 signature using constant-time comparison
+  const hash = crypto
+    .createHmac('sha512', webhookSecret)
+    .update(typeof rawBody === 'string' ? rawBody : JSON.stringify(rawBody))
+    .digest('hex');
 
-    if (hash !== signature) {
-      throw new Error('Invalid webhook signature');
-    }
+  const hashBuffer = Buffer.from(hash, 'hex');
+  const sigBuffer = Buffer.from(String(signature || ''), 'hex');
+
+  if (hashBuffer.length !== sigBuffer.length || !crypto.timingSafeEqual(hashBuffer, sigBuffer)) {
+    throw new Error('Invalid webhook signature');
   }
 
   const payload = typeof rawBody === 'string' ? JSON.parse(rawBody) : rawBody;
@@ -150,7 +154,7 @@ export async function handlePaystackWebhook(rawBody, signature) {
         .eq('status', 'suspended');
 
       // Enforce school billing status and unsuspension check
-      await adminClient.rpc('check_and_enforce_school_billing_status', { p_school_id: schoolId }).catch(() => {});
+      await adminClient.rpc('check_and_enforce_school_billing_status', { p_school_id: schoolId }).catch(() => { });
 
       // Audit log
       await adminClient.from('audit_logs').insert({

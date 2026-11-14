@@ -13,7 +13,10 @@ export async function handleReportView(shareId) {
 
   const cleanShareId = String(shareId).trim().toLowerCase();
 
-  const serviceKey = SERVICE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY || 'sb_secret_WIQRhbLScCi4Z8y4dJ2klg_tJVgB3SI';
+  const serviceKey = SERVICE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
+  if (!serviceKey) {
+    throw new Error('Server configuration error: SUPABASE_SERVICE_ROLE_KEY is not configured');
+  }
   const adminClient = createClient(SUPABASE_URL, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });

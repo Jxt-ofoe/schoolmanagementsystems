@@ -18,18 +18,19 @@ export async function handleSendReminder(body, authHeader) {
     global: { headers: { Authorization: `Bearer ${token}` } },
     auth: { persistSession: false },
   });
-  const { data: userData } = await callerClient.auth.getUser(token);
-  const callerId = userData?.user?.id;
+  const { data: userData, error: userErr } = await callerClient.auth.getUser(token);
+  if (userErr || !userData?.user) {
+    throw new Error('Unauthorized: invalid session');
+  }
+  const callerId = userData.user.id;
 
   const adminClient = createClient(SUPABASE_URL, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  if (callerId) {
-    const { data: sa } = await adminClient.from('platform_admins').select('user_id').eq('user_id', callerId).maybeSingle();
-    if (!sa) {
-      throw new Error('Unauthorized: only platform super administrators can dispatch billing reminders');
-    }
+  const { data: sa } = await adminClient.from('platform_admins').select('user_id').eq('user_id', callerId).maybeSingle();
+  if (!sa) {
+    throw new Error('Unauthorized: only platform super administrators can dispatch billing reminders');
   }
 
   const { school_id, billing_id, reminder_type } = body || {};

@@ -120,12 +120,14 @@ export async function handleCreateStaff(body, authHeader) {
     // Password is NOT overwritten to protect against account takeover.
   }
 
-  // 3. Upsert profile
-  await adminClient.from('profiles').upsert({
-    id: userId,
-    email: normEmail,
-    full_name: normName,
-  });
+  // 3. Upsert profile (only create if new to avoid cross-tenant name tampering)
+  if (outcome === 'created') {
+    await adminClient.from('profiles').upsert({
+      id: userId,
+      email: normEmail,
+      full_name: normName,
+    });
+  }
 
   // 4. Verify membership doesn't already exist in this school
   const { data: existingMem } = await adminClient

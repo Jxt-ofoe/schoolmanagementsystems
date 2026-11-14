@@ -8,7 +8,6 @@ const ALLOWED_MIME_TYPES = {
   'image/jpeg': 'jpg',
   'image/jpg': 'jpg',
   'image/webp': 'webp',
-  'image/svg+xml': 'svg',
   'image/gif': 'gif',
 };
 
@@ -123,7 +122,7 @@ export async function handleSchoolLogo(body, authHeader) {
   const mime = (detectedType || 'image/png').toLowerCase();
   const ext = ALLOWED_MIME_TYPES[mime];
   if (!ext) {
-    throw new Error('Unsupported image format. Please upload a PNG, JPG, WebP, or SVG file.');
+    throw new Error('Unsupported image format. Please upload a PNG, JPG, WebP, or GIF image.');
   }
 
   const buffer = Buffer.from(base64Data, 'base64');

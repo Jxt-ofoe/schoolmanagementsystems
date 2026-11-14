@@ -291,6 +291,10 @@ declare
   v_school record;
   v_count integer := 0;
 begin
+  if not private.is_super_admin() then
+    raise exception 'Unauthorized: Only platform super administrators can batch enforce school billing' using errcode = '42501';
+  end if;
+
   for v_school in select id from public.schools order by name loop
     perform public.check_and_enforce_school_billing_status(v_school.id);
     v_count := v_count + 1;
