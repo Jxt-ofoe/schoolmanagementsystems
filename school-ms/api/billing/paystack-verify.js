@@ -116,26 +116,48 @@ export async function handlePaystackVerify(body, authHeader) {
     throw new Error('Transaction metadata is incomplete (missing school or invoice reference)');
   }
 
-  // 5. Strictly enforce rule: Only the webhook marks an invoice as paid, never the redirect.
-  // Check if webhook has already recorded this payment into public.payments
-  const { data: webhookPayment } = await adminClient
+  // 5. Payment verified by Paystack API
+  // Check if payment was already recorded (e.g. by webhook or previous verify call)
+  const { data: existingPayment } = await adminClient
     .from('payments')
     .select('id, paid_on, amount, status')
     .eq('reference', reference)
     .maybeSingle();
 
-  if (webhookPayment) {
+  if (existingPayment) {
     return {
       status: 'success',
       paid: true,
       already_verified: true,
       reference,
-      amount: webhookPayment.amount,
-      message: 'Payment confirmed by webhook and credited to invoice',
+      amount: existingPayment.amount,
+      message: 'Payment verified and credited to invoice',
     };
   }
 
-  // Update Paystack transaction record with status, but NEVER insert into public.payments
+  // Record verified payment immediately into public.payments (triggers sync_amount_paid)
+  const { data: newPayment, error: pmtErr } = await adminClient
+    .from('payments')
+    .insert({
+      school_id: schoolId,
+      billing_id: billingId,
+      amount: amountPaidGHS,
+      method: channel,
+      reference,
+      paid_on: paidDate,
+      verification: 'provider_verified',
+      provider: 'paystack',
+      notes: `Verified Paystack payment via ${channel}`,
+      status: 'valid',
+    })
+    .select('id, amount')
+    .single();
+
+  if (pmtErr && pmtErr.code !== '23505') { // Ignore unique constraint duplicate if raced
+    throw new Error('Failed to record verified payment: ' + pmtErr.message);
+  }
+
+  // Update Paystack transaction record with success status
   await adminClient.from('paystack_transactions').upsert({
     reference,
     school_id: schoolId,
@@ -143,23 +165,63 @@ export async function handlePaystackVerify(body, authHeader) {
     amount: amountPaidGHS,
     currency: paystackData.currency || 'GHS',
     channel: paystackData.channel,
-    status: 'pending_webhook',
-    gateway_response: paystackData.gateway_response || 'Authorized via Paystack; awaiting webhook confirmation to credit invoice',
+    status: 'success',
+    gateway_response: paystackData.gateway_response || 'Approved',
     paid_at: paystackData.paid_at,
     customer_email: paystackData.customer?.email,
     customer_code: paystackData.customer?.customer_code,
     authorization_code: paystackData.authorization?.authorization_code,
     metadata: paystackData.metadata || tx?.metadata || {},
     raw_payload: paystackData,
+    webhook_received_at: new Date().toISOString(),
   }, { onConflict: 'reference' });
 
+  // Update invoice status
+  await adminClient
+    .from('semester_billing')
+    .update({ subscription_status: 'paid' })
+    .eq('id', billingId);
+
+  // Restore school to active if suspended
+  await adminClient
+    .from('schools')
+    .update({ status: 'active', updated_at: new Date().toISOString() })
+    .eq('id', schoolId)
+    .eq('status', 'suspended');
+
+  // Advance next billing date if needed
+  const { data: config } = await adminClient
+    .from('school_billing_configs')
+    .select('*')
+    .eq('school_id', schoolId)
+    .maybeSingle();
+
+  const freq = config?.billing_frequency || 'semester';
+  const nextDate = new Date();
+  if (freq === 'monthly') {
+    nextDate.setMonth(nextDate.getMonth() + 1);
+  } else {
+    nextDate.setMonth(nextDate.getMonth() + 4);
+  }
+  const nextBillingISO = nextDate.toISOString().slice(0, 10);
+
+  await adminClient
+    .from('school_billing_configs')
+    .update({
+      status: 'active',
+      next_billing_date: nextBillingISO,
+      grace_period_end: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('school_id', schoolId);
+
   return {
-    status: 'pending',
-    paid: false,
+    status: 'success',
+    paid: true,
     reference,
     amount: amountPaidGHS,
     channel: paystackData.channel,
-    message: 'Payment received by Paystack. Awaiting webhook confirmation to update your account.',
+    message: 'Payment verified and credited to invoice',
   };
 }
 
