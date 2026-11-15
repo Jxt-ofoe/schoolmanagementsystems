@@ -84,7 +84,6 @@ function navFor(isSuperAdmin: boolean, role: string | undefined, schoolStatus?: 
         { to: '/school/communication/sms', label: 'Bulk SMS', icon: icons.message },
         { to: '/school/communication/whatsapp', label: 'WhatsApp Report Cards', icon: icons.share },
         { to: '/school/communication/history', label: 'Message History', icon: icons.history },
-        { to: '/school/communication/settings', label: 'SMS Settings', icon: icons.gear },
       ]
     });
     sections.push({

@@ -48,7 +48,6 @@ const BatchTerminalReportsPage = lazy(() => import('./pages/shared/BatchTerminal
 const BulkSmsPage = lazy(() => import('./pages/communication/BulkSms'));
 const WhatsAppSharePage = lazy(() => import('./pages/communication/WhatsAppShare'));
 const MessageHistoryPage = lazy(() => import('./pages/communication/MessageHistory'));
-const CommunicationSettingsPage = lazy(() => import('./pages/communication/CommunicationSettings'));
 
 // legal
 const PrivacyPolicyPage = lazy(() => import('./pages/legal/PrivacyPolicy'));
@@ -103,7 +102,6 @@ export function App() {
           <Route path="school/communication/sms" element={<RequireRole need="headmaster"><BulkSmsPage /></RequireRole>} />
           <Route path="school/communication/whatsapp" element={<RequireRole need="headmaster"><WhatsAppSharePage /></RequireRole>} />
           <Route path="school/communication/history" element={<RequireRole need="headmaster"><MessageHistoryPage /></RequireRole>} />
-          <Route path="school/communication/settings" element={<RequireRole need="headmaster"><CommunicationSettingsPage /></RequireRole>} />
           <Route path="school/audit" element={<Navigate to="/school" replace />} />
 
           <Route path="teach" element={<RequireRole need="teacher"><TeacherDashboard /></RequireRole>} />

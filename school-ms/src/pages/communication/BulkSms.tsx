@@ -351,9 +351,6 @@ export default function BulkSmsPage() {
             <Link to="/school/communication/history">
               <Button variant="secondary" size="sm">📜 Message History</Button>
             </Link>
-            <Link to="/school/communication/settings">
-              <Button variant="secondary" size="sm">⚙️ SMS Gateway Settings</Button>
-            </Link>
           </div>
         }
       />
