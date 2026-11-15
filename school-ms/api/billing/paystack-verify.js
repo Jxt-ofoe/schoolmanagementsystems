@@ -57,7 +57,7 @@ export async function handlePaystackVerify(body, authHeader) {
   const paystackSecret = process.env.PAYSTACK_SECRET_KEY;
   let paystackData = null;
 
-  if (paystackSecret && !paystackSecret.includes('placeholder')) {
+  if (paystackSecret && !paystackSecret.includes('placeholder') && !paystackSecret.includes('xxxx')) {
     const pstkRes = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
       method: 'GET',
       headers: {

@@ -254,7 +254,7 @@ export async function handlePaystackInit(body, authHeader) {
   let authUrl = null;
   let accessCode = null;
 
-  if (paystackSecret && !paystackSecret.includes('placeholder')) {
+  if (paystackSecret && !paystackSecret.includes('placeholder') && !paystackSecret.includes('xxxx')) {
     const paystackRes = await fetch('https://api.paystack.co/transaction/initialize', {
       method: 'POST',
       headers: {
