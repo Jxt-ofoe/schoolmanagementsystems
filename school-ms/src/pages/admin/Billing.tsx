@@ -197,7 +197,7 @@ export default function AdminBilling() {
               onClick={() => setConfirmGenerateAll(true)}
               title="Generate term invoices for all active schools with active terms"
             >
-              ⚡ Generate Invoices for All Schools
+              Generate Invoices for All Schools
             </Button>
             <Button
               variant="secondary"
@@ -225,7 +225,7 @@ export default function AdminBilling() {
             gap: 12,
           }}
         >
-          <span style={{ fontSize: 20 }}>⚠️</span>
+          <img src="/favicon.svg" alt="" width="20" height="20" style={{ verticalAlign: 'middle', marginTop: 2 }} />
           <div style={{ flex: 1, fontSize: 13, color: '#92400e' }}>
             <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>
               Database Migration Required
@@ -560,7 +560,7 @@ export default function AdminBilling() {
                               Payments
                             </Button>
                             <Button size="sm" variant="ghost" onClick={() => setRemindingBill(b)}>
-                              🔔 Remind
+                              Remind
                             </Button>
                             <Button size="sm" variant="ghost" onClick={() => setTerms(b)}>
                               Terms

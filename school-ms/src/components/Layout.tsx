@@ -171,7 +171,8 @@ function SchoolBillingBanner({
       <div className="alert alert-error" style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
           <div>
-            <strong>⚠️ School Suspended:</strong> An outstanding term invoice of{' '}
+            <img src="/favicon.svg" alt="" width="16" height="16" style={{ verticalAlign: 'middle', marginRight: 6 }} />
+            <strong>School Suspended:</strong> An outstanding term invoice of{' '}
             <strong>{formatMoney(totalOverdue || mainBill?.balance || 0)}</strong> is overdue{' '}
             (due {formatDate(overdueBill?.due_date ?? mainBill?.due_date)}). All data is preserved, but operational access is locked until paid.
           </div>
@@ -188,7 +189,8 @@ function SchoolBillingBanner({
       <div className="alert alert-warn" style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
           <div>
-            <strong>⚠️ Term Invoice Issued:</strong> Your invoice of{' '}
+            <img src="/favicon.svg" alt="" width="16" height="16" style={{ verticalAlign: 'middle', marginRight: 6 }} />
+            <strong>Term Invoice Issued:</strong> Your invoice of{' '}
             <strong>{formatMoney(activeUnpaid.total_payable || activeUnpaid.amount_due)}</strong> was issued on{' '}
             {formatDate(activeUnpaid.issue_date || activeUnpaid.created_at)}. Payment is due on{' '}
             <strong>{formatDate(activeUnpaid.due_date)}</strong>. Please settle your payment before the due date to prevent school suspension.
@@ -208,7 +210,8 @@ function SchoolBillingBanner({
 
     return (
       <div className="alert alert-info" style={{ marginBottom: 16 }}>
-        ℹ️ <strong>Your grace period ends on {formatDate(graceEndISO)}. Register all students before then.</strong>
+        <img src="/favicon.svg" alt="" width="16" height="16" style={{ verticalAlign: 'middle', marginRight: 6 }} />
+        <strong>Your grace period ends on {formatDate(graceEndISO)}. Register all students before then.</strong>
       </div>
     );
   }

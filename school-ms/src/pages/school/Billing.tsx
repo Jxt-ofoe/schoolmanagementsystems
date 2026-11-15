@@ -181,11 +181,11 @@ export default function SchoolBillingPage() {
         actions={
           primaryUnpaidBill ? (
             <Button onClick={() => setPayingBill(primaryUnpaidBill)}>
-              💳 Pay Outstanding Bill ({formatMoney(primaryUnpaidBill.balance)})
+              Pay Outstanding Bill ({formatMoney(primaryUnpaidBill.balance)})
             </Button>
           ) : !currentBill && count > 0 ? (
             <Button onClick={() => handlePayEstimated()}>
-              💳 Pay with Paystack ({formatMoney(estimate.totalPayable)})
+              Pay with Paystack ({formatMoney(estimate.totalPayable)})
             </Button>
           ) : undefined
         }
@@ -194,7 +194,8 @@ export default function SchoolBillingPage() {
       {/* 1. Grace Period Banner: Term start 30-day grace period */}
       {inGracePeriod && (
         <Alert tone="warn">
-          ℹ️ <strong>30-Day Grace Period Active:</strong> Your grace period ends on{' '}
+          <img src="/favicon.svg" alt="" width="16" height="16" style={{ verticalAlign: 'middle', marginRight: 6 }} />
+          <strong>30-Day Grace Period Active:</strong> Your grace period ends on{' '}
           <strong>{formatDate(graceStatus.graceEnd?.toISOString().slice(0, 10))}</strong>. Register all students before then.
           No invoice is issued yet. On Day 30, the student count will be snapshotted and the term invoice issued.
         </Alert>
@@ -203,7 +204,8 @@ export default function SchoolBillingPage() {
       {/* 2. School Suspended Alert if overdue */}
       {suspended && (
         <Alert tone="error">
-          🚨 <strong>School Access Suspended:</strong> An overdue term or top-up invoice is unpaid. Platform access to school records is paused.
+          <img src="/favicon.svg" alt="" width="16" height="16" style={{ verticalAlign: 'middle', marginRight: 6 }} />
+          <strong>School Access Suspended:</strong> An overdue term or top-up invoice is unpaid. Platform access to school records is paused.
           Please settle your outstanding invoice immediately to restore full access.
         </Alert>
       )}
@@ -211,7 +213,8 @@ export default function SchoolBillingPage() {
       {/* 3. Warning banner from Day 30 invoice issue until paid */}
       {!suspended && !inGracePeriod && currentBill && Number(currentBill.balance) > 0 && (
         <Alert tone="warn">
-          ⚠️ <strong>Term Invoice Issued:</strong> Your term invoice of{' '}
+          <img src="/favicon.svg" alt="" width="16" height="16" style={{ verticalAlign: 'middle', marginRight: 6 }} />
+          <strong>Term Invoice Issued:</strong> Your term invoice of{' '}
           <strong>{formatMoney(currentBill.total_payable || currentBill.amount_due)}</strong> was issued on{' '}
           {formatDate(currentBill.issue_date || currentBill.created_at)}. Payment is due on{' '}
           <strong>{formatDate(currentBill.due_date)}</strong>. Please pay before the due date to avoid school suspension.
@@ -813,8 +816,8 @@ function PaystackCheckoutModal({
         <div style={{ padding: 12, border: '1px solid var(--border)', borderRadius: 8, background: '#fff' }}>
           <strong>Accepted Payment Methods:</strong>
           <ul style={{ margin: '6px 0 0', paddingLeft: 20, fontSize: '0.9rem', color: 'var(--muted)' }}>
-            <li>💳 <strong>Bank Cards:</strong> Visa, Mastercard (Debit or Credit)</li>
-            <li>📱 <strong>Mobile Money:</strong> MTN MoMo, Telecel Cash, AirtelTigo Money</li>
+            <li><strong>Bank Cards:</strong> Visa, Mastercard (Debit or Credit)</li>
+            <li><strong>Mobile Money:</strong> MTN MoMo, Telecel Cash, AirtelTigo Money</li>
           </ul>
         </div>
       </div>
