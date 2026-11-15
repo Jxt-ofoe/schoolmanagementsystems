@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { useSchool } from '../../lib/auth';
@@ -32,6 +32,7 @@ declare global {
 
 export default function SchoolBillingPage() {
   const { schoolId } = useSchool();
+  const qc = useQueryClient();
 
   const [payingBill, setPayingBill] = useState<BillingOverview | null>(null);
 
@@ -121,8 +122,35 @@ export default function SchoolBillingPage() {
   const currentBill = mainBills.find((b) => b.is_current) || mainBills[0];
   const price = Number(cfg?.price_per_student ?? currentBill?.price_per_student ?? settings.data?.price_per_student ?? PRICE_PER_STUDENT_PER_TERM);
 
-  // Active student count (fixed snapshot on current invoice if available, else active students count)
-  const count = currentBill?.student_count ?? activeStudentCount.data ?? liveCount.data ?? 0;
+  // Active student count: live registered active students count is the source of truth
+  const liveActive = activeStudentCount.data ?? liveCount.data ?? 0;
+  const count = Math.max(Number(currentBill?.student_count ?? 0), liveActive);
+
+  // Auto-sync invoice when live registered students exceed what was previously invoiced
+  useEffect(() => {
+    const liveVal = activeStudentCount.data;
+    if (currentBill && liveVal && liveVal > Number(currentBill.student_count || 0)) {
+      supabase.auth.getSession().then(({ data: sess }) => {
+        const token = sess.session?.access_token;
+        if (!token) return;
+        fetch('/api/billing/sync-topup', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ school_id: schoolId }),
+        })
+          .then((res) => res.json())
+          .then((result) => {
+            if (result?.synced) {
+              qc.invalidateQueries({ queryKey: ['billing'] });
+            }
+          })
+          .catch(() => { });
+      });
+    }
+  }, [activeStudentCount.data, currentBill?.student_count, currentBill?.id, schoolId, qc]);
 
   // Breakdown calculation
   const discountType = cfg?.discount_type ?? 'none';

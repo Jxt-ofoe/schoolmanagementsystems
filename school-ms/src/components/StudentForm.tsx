@@ -184,6 +184,22 @@ export function StudentForm({ open, onClose, schoolId, classes, student, default
       qc.invalidateQueries({ queryKey: ['fee_structures'] });
       qc.invalidateQueries({ queryKey: ['school_dashboard_fees'] });
       qc.invalidateQueries({ queryKey: ['next_admission_number'] });
+      qc.invalidateQueries({ queryKey: ['active_students_count'] });
+      qc.invalidateQueries({ queryKey: ['billable_count'] });
+      qc.invalidateQueries({ queryKey: ['billing'] });
+
+      // Automatically sync term billing in background if invoice exists
+      supabase.auth.getSession().then(({ data: sess }) => {
+        const token = sess.session?.access_token;
+        if (!token) return;
+        fetch('/api/billing/sync-topup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ school_id: schoolId }),
+        }).then(() => {
+          qc.invalidateQueries({ queryKey: ['billing'] });
+        }).catch(() => {});
+      });
       onSaved?.(id);
       onClose();
     },
