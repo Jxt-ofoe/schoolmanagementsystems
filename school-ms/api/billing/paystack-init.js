@@ -13,9 +13,6 @@ export async function handlePaystackInit(body, authHeader) {
   if (!school_id) {
     throw new Error('School ID is required');
   }
-  if (!billing_id) {
-    throw new Error('Billing invoice ID is required');
-  }
 
   // 1. Verify caller authentication
   const token = (authHeader || '').replace(/^Bearer\s+/i, '');
@@ -67,15 +64,115 @@ export async function handlePaystackInit(body, authHeader) {
     throw new Error('School not found');
   }
 
-  const { data: bill, error: bErr } = await adminClient
-    .from('semester_billing')
-    .select('*')
-    .eq('id', billing_id)
-    .eq('school_id', school_id)
-    .single();
+  let bill = null;
+  if (billing_id && billing_id !== 'current') {
+    const { data: b, error: bErr } = await adminClient
+      .from('semester_billing')
+      .select('*')
+      .eq('id', billing_id)
+      .eq('school_id', school_id)
+      .single();
 
-  if (bErr || !bill) {
-    throw new Error('Billing invoice not found');
+    if (bErr || !b) {
+      throw new Error('Billing invoice not found');
+    }
+    bill = b;
+  } else {
+    // Current term invoice requested
+    const { data: currentSem } = await adminClient
+      .from('semesters')
+      .select('id, name, starts_on, academic_year_id, academic_years(name)')
+      .eq('school_id', school_id)
+      .eq('is_current', true)
+      .maybeSingle();
+
+    if (!currentSem) {
+      throw new Error('No active term/semester found for this school');
+    }
+
+    const { data: existingBill } = await adminClient
+      .from('semester_billing')
+      .select('*')
+      .eq('school_id', school_id)
+      .eq('semester_id', currentSem.id)
+      .eq('is_topup', false)
+      .maybeSingle();
+
+    if (existingBill) {
+      bill = existingBill;
+    } else {
+      // 30-day grace period active: school is paying early! Generate the term invoice on-demand.
+      const { count: studentCount } = await adminClient
+        .from('students')
+        .select('*', { count: 'exact', head: true })
+        .eq('school_id', school_id)
+        .eq('enrollment_status', 'active');
+
+      const count = Math.max(1, studentCount || 0);
+
+      const { data: pSettings } = await adminClient
+        .from('platform_settings')
+        .select('price_per_student')
+        .eq('id', true)
+        .maybeSingle();
+      const defaultPrice = Number(pSettings?.price_per_student ?? 3.0);
+
+      const { data: cfg } = await adminClient
+        .from('school_billing_configs')
+        .select('*')
+        .eq('school_id', school_id)
+        .maybeSingle();
+
+      const price = Number(cfg?.price_per_student ?? defaultPrice);
+      const subtotal = count * price;
+      let discount = 0;
+      if (cfg?.discount_type === 'percentage' && Number(cfg.discount_value) > 0) {
+        discount = Math.round(subtotal * (Number(cfg.discount_value) / 100) * 100) / 100;
+      } else if (cfg?.discount_type === 'fixed' && Number(cfg.discount_value) > 0) {
+        discount = Math.min(subtotal, Number(cfg.discount_value));
+      }
+      const passMarkup = cfg ? cfg.pass_fee_markup !== false : true;
+      const markupPercent = cfg ? Number(cfg.fee_markup_percent ?? 3.0) : 3.0;
+      const feeMarkup = passMarkup ? Math.round((subtotal - discount) * (markupPercent / 100) * 100) / 100 : 0;
+      const total = subtotal - discount + feeMarkup;
+
+      const now = new Date();
+      const issueDate = now.toISOString().slice(0, 10);
+      const dueDateObj = new Date(now);
+      dueDateObj.setDate(dueDateObj.getDate() + 7);
+      const dueDate = dueDateObj.toISOString().slice(0, 10);
+      const invNumber = 'INV-' + issueDate.replace(/-/g, '').slice(2, 6) + '-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+      const periodLabel = currentSem.name + (currentSem.academic_years?.name ? ' · ' + currentSem.academic_years.name : '');
+
+      const { data: newBill, error: createErr } = await adminClient
+        .from('semester_billing')
+        .insert({
+          school_id,
+          semester_id: currentSem.id,
+          billing_frequency: 'term',
+          period_label: periodLabel,
+          student_count: count,
+          price_per_student: price,
+          currency: 'GHS',
+          discount_amount: discount,
+          fee_markup_amount: feeMarkup,
+          total_payable: total,
+          due_date: dueDate,
+          issue_date: issueDate,
+          snapshot_date: issueDate,
+          invoice_number: invNumber,
+          subscription_status: 'awaiting_payment',
+          is_topup: false,
+          last_calculated_at: now.toISOString(),
+        })
+        .select()
+        .single();
+
+      if (createErr || !newBill) {
+        throw new Error('Failed to generate term invoice: ' + (createErr?.message || 'unknown error'));
+      }
+      bill = newBill;
+    }
   }
 
   // Fetch school billing configuration for discount & markup rules
@@ -121,7 +218,7 @@ export async function handlePaystackInit(body, authHeader) {
       fee_markup_amount: feeMarkup,
       total_payable: totalPayable,
     })
-    .eq('id', billing_id);
+    .eq('id', bill.id);
 
   // 4. Paystack Reference & Metadata
   const reference = `PSTK_${school.code ? school.code.slice(0, 10) : 'SCH'}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
@@ -130,7 +227,7 @@ export async function handlePaystackInit(body, authHeader) {
   const metadata = {
     school_id,
     school_name: school.name,
-    billing_id,
+    billing_id: bill.id,
     period_label: bill.period_label || `${bill.student_count} Students`,
     student_count: bill.student_count,
     price_per_student: bill.price_per_student,
@@ -192,7 +289,7 @@ export async function handlePaystackInit(body, authHeader) {
   // 6. Record transaction attempt in paystack_transactions
   await adminClient.from('paystack_transactions').insert({
     school_id,
-    billing_id,
+    billing_id: bill.id,
     reference,
     event_type: 'checkout_init',
     amount: totalPayable,

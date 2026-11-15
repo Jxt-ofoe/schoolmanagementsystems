@@ -141,6 +141,38 @@ export default function SchoolBillingPage() {
   const unpaidBills = allBills.filter((b) => Number(b.balance) > 0);
   const primaryUnpaidBill = unpaidBills[0];
 
+  const handlePayEstimated = () => {
+    const estimatedBillPlaceholder: BillingOverview = {
+      id: 'current',
+      school_id: schoolId,
+      school_name: schoolQuery.data?.name || 'School',
+      school_code: schoolQuery.data?.code || 'SCH',
+      school_status: schoolQuery.data?.status || 'active',
+      semester_id: current?.id ?? null,
+      semester_name: current?.name ?? null,
+      academic_year_name: null,
+      period_label: current ? semesterLabel(current) : 'Current Term',
+      billing_frequency: 'term',
+      student_count: count,
+      price_per_student: price,
+      currency: 'GHS',
+      amount_due: estimate.subtotal,
+      amount_paid: 0,
+      balance: estimate.balance,
+      total_payable: estimate.totalPayable,
+      discount_amount: estimate.discount,
+      fee_markup_amount: estimate.feeMarkup,
+      due_date: null,
+      notes: null,
+      last_calculated_at: null,
+      payment_status: 'unpaid',
+      renewal_status: 'pending',
+      is_current: true,
+      is_topup: false,
+    };
+    setPayingBill(estimatedBillPlaceholder);
+  };
+
   return (
     <>
       <PageHeader
@@ -150,6 +182,10 @@ export default function SchoolBillingPage() {
           primaryUnpaidBill ? (
             <Button onClick={() => setPayingBill(primaryUnpaidBill)}>
               💳 Pay Outstanding Bill ({formatMoney(primaryUnpaidBill.balance)})
+            </Button>
+          ) : !currentBill && count > 0 ? (
+            <Button onClick={() => handlePayEstimated()}>
+              💳 Pay with Paystack ({formatMoney(estimate.totalPayable)})
             </Button>
           ) : undefined
         }
@@ -251,6 +287,10 @@ export default function SchoolBillingPage() {
             <Button size="sm" onClick={() => setPayingBill(currentBill)}>
               Pay with Paystack →
             </Button>
+          ) : !currentBill && count > 0 ? (
+            <Button size="sm" onClick={() => handlePayEstimated()}>
+              Pay with Paystack →
+            </Button>
           ) : undefined
         }
       >
@@ -320,6 +360,31 @@ export default function SchoolBillingPage() {
             </strong>
           </div>
         </div>
+
+        {/* Prominent Direct Payment Action Banner */}
+        {currentBill && Number(currentBill.balance) > 0 && (
+          <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, background: 'rgba(20, 108, 67, 0.08)', padding: '14px 18px', borderRadius: 8, border: '1px solid rgba(20, 108, 67, 0.25)' }}>
+            <div>
+              <strong style={{ fontSize: '1rem', color: 'var(--green-900)' }}>Term Invoice Outstanding</strong>
+              <div className="muted small">Payment of {formatMoney(currentBill.balance)} is due on {formatDate(currentBill.due_date)}.</div>
+            </div>
+            <Button onClick={() => setPayingBill(currentBill)}>
+              Pay with Paystack ({formatMoney(currentBill.total_payable ?? currentBill.balance)}) →
+            </Button>
+          </div>
+        )}
+
+        {!currentBill && count > 0 && (
+          <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, background: 'rgba(20, 108, 67, 0.08)', padding: '14px 18px', borderRadius: 8, border: '1px solid rgba(20, 108, 67, 0.25)' }}>
+            <div>
+              <strong style={{ fontSize: '1rem', color: 'var(--green-900)' }}>Ready to settle your term bill?</strong>
+              <div className="muted small">You don't have to wait for the 30-day grace period to expire. You can pay now for your {count} active student(s).</div>
+            </div>
+            <Button onClick={() => handlePayEstimated()}>
+              Pay with Paystack ({formatMoney(estimate.totalPayable)}) →
+            </Button>
+          </div>
+        )}
       </Card>
 
       <div style={{ height: 16 }} />
