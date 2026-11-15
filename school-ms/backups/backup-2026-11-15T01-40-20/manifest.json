@@ -1,0 +1,125 @@
+{
+  "timestamp": "2026-11-15T01:40:20.125Z",
+  "source_url": "https://simskpwdkbcudmgzjsib.supabase.co",
+  "total_tables": 29,
+  "total_records": 1,
+  "tables": {
+    "schools": {
+      "count": 0,
+      "json": "tables/schools.json"
+    },
+    "profiles": {
+      "count": 1,
+      "json": "tables/profiles.json"
+    },
+    "school_settings": {
+      "count": 0,
+      "json": "tables/school_settings.json"
+    },
+    "school_memberships": {
+      "count": 0,
+      "json": "tables/school_memberships.json"
+    },
+    "academic_years": {
+      "count": 0,
+      "json": "tables/academic_years.json"
+    },
+    "semesters": {
+      "count": 0,
+      "json": "tables/semesters.json"
+    },
+    "classes": {
+      "count": 0,
+      "json": "tables/classes.json"
+    },
+    "subjects": {
+      "count": 0,
+      "json": "tables/subjects.json"
+    },
+    "teacher_assignments": {
+      "count": 0,
+      "json": "tables/teacher_assignments.json"
+    },
+    "grading_scales": {
+      "count": 0,
+      "json": "tables/grading_scales.json"
+    },
+    "grading_scale_bands": {
+      "count": 0,
+      "json": "tables/grading_scale_bands.json"
+    },
+    "fee_categories": {
+      "count": 0,
+      "json": "tables/fee_categories.json"
+    },
+    "fee_structures": {
+      "count": 0,
+      "json": "tables/fee_structures.json"
+    },
+    "students": {
+      "count": 0,
+      "json": "tables/students.json"
+    },
+    "student_enrollments": {
+      "count": 0,
+      "json": "tables/student_enrollments.json"
+    },
+    "assessments": {
+      "count": 0,
+      "json": "tables/assessments.json"
+    },
+    "scores": {
+      "count": 0,
+      "json": "tables/scores.json"
+    },
+    "attendance_sessions": {
+      "count": 0,
+      "json": "tables/attendance_sessions.json"
+    },
+    "attendance_records": {
+      "count": 0,
+      "json": "tables/attendance_records.json"
+    },
+    "examinations": {
+      "count": 0,
+      "json": "tables/examinations.json"
+    },
+    "exam_timetables": {
+      "count": 0,
+      "json": "tables/exam_timetables.json"
+    },
+    "subject_result_submissions": {
+      "count": 0,
+      "json": "tables/subject_result_submissions.json"
+    },
+    "terminal_reports": {
+      "count": 0,
+      "json": "tables/terminal_reports.json"
+    },
+    "student_fee_charges": {
+      "count": 0,
+      "json": "tables/student_fee_charges.json"
+    },
+    "student_fee_payments": {
+      "count": 0,
+      "json": "tables/student_fee_payments.json"
+    },
+    "student_promotions": {
+      "count": 0,
+      "json": "tables/student_promotions.json"
+    },
+    "semester_billing": {
+      "count": 0,
+      "json": "tables/semester_billing.json"
+    },
+    "payments": {
+      "count": 0,
+      "json": "tables/payments.json"
+    },
+    "audit_logs": {
+      "count": 0,
+      "json": "tables/audit_logs.json"
+    }
+  },
+  "duration_seconds": 17.5
+}

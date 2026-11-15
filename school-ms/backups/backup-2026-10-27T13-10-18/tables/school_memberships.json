@@ -1,4 +1,0 @@
-[
-  {"id":"895329f6-c1c5-4f48-977d-696796ac9027","school_id":"a7303214-df0f-4b3c-90c6-0be34d623a09","user_id":"197a2433-e6cf-4ca9-b9f2-3fe8d8e49486","role":"headmaster","status":"active","created_at":"2026-10-26T15:54:52.525288+00:00","updated_at":"2026-10-26T15:54:52.525288+00:00"},
-  {"id":"c0477125-846d-4549-a8a1-92d315a3961c","school_id":"a7303214-df0f-4b3c-90c6-0be34d623a09","user_id":"da6f329d-5a1c-4eca-9a2b-a6ced88e4a33","role":"teacher","status":"active","created_at":"2026-10-26T18:17:09.868521+00:00","updated_at":"2026-10-26T18:17:09.868521+00:00"}
-]

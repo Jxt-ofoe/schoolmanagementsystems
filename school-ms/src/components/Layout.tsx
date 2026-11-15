@@ -229,9 +229,21 @@ export function Layout() {
 
   const sections = navFor(!!ctx?.is_super_admin, active?.role, active?.school_status);
   const name = ctx?.profile?.full_name || ctx?.profile?.email || 'Account';
+  const isAdmin = location.pathname.startsWith('/admin') || (!!ctx?.is_super_admin && location.pathname === '/account');
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${isAdmin ? 'admin-liquid-glass' : ''}`}>
+      {isAdmin && (
+        <div className="liquid-glass-canvas" aria-hidden="true">
+          <div className="liquid-orb orb-1" />
+          <div className="liquid-orb orb-2" />
+          <div className="liquid-orb orb-3" />
+          <div className="liquid-orb orb-4" />
+          <div className="liquid-orb orb-5" />
+          <div className="liquid-glass-frost" />
+          <div className="liquid-glass-glare" />
+        </div>
+      )}
       <a href="#main" className="skip-link">Skip to content</a>
       <header className="topbar">
         <button className="menu-btn" aria-label="Open menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
