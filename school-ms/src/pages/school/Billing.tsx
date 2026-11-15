@@ -668,52 +668,54 @@ function PaystackCheckoutModal({
             billing_id: bill.id,
             save_card_for_recurring: saveCard,
           },
-          callback: async (response: any) => {
+          callback: (response: any) => {
             // Strictly enforce rule: only the webhook marks an invoice as paid, never the redirect.
             setLoading(true);
-            try {
-              const ref = response.reference || reference;
-              // Poll verify endpoint: only webhook marks invoice as paid!
-              let attempts = 0;
-              let paidConfirmed = false;
-              while (attempts < 5 && !paidConfirmed) {
-                const verifyRes = await fetch('/api/billing/paystack-verify', {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`,
-                  },
-                  body: JSON.stringify({ reference: ref }),
-                });
+            void (async () => {
+              try {
+                const ref = response?.reference || reference;
+                // Poll verify endpoint: only webhook marks invoice as paid!
+                let attempts = 0;
+                let paidConfirmed = false;
+                while (attempts < 5 && !paidConfirmed) {
+                  const verifyRes = await fetch('/api/billing/paystack-verify', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      Authorization: `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({ reference: ref }),
+                  });
 
-                const verifyData = await verifyRes.json();
-                if (verifyData.paid) {
-                  paidConfirmed = true;
-                  break;
+                  const verifyData = await verifyRes.json();
+                  if (verifyData.paid) {
+                    paidConfirmed = true;
+                    break;
+                  }
+                  attempts++;
+                  if (attempts < 5) {
+                    await new Promise((r) => setTimeout(r, 1500));
+                  }
                 }
-                attempts++;
-                if (attempts < 5) {
-                  await new Promise((r) => setTimeout(r, 1500));
+
+                if (paidConfirmed) {
+                  toast('Payment successful! Confirmed by Paystack webhook.');
+                } else {
+                  toast('Payment authorized by Paystack! The webhook is processing your invoice update.');
                 }
-              }
 
-              if (paidConfirmed) {
-                toast('Payment successful! Confirmed by Paystack webhook.');
-              } else {
-                toast('Payment authorized by Paystack! The webhook is processing your invoice update.');
+                qc.invalidateQueries({ queryKey: ['billing'] });
+                qc.invalidateQueries({ queryKey: ['payments'] });
+                qc.invalidateQueries({ queryKey: ['school_billing_config'] });
+                qc.invalidateQueries({ queryKey: ['school_info'] });
+                qc.invalidateQueries({ queryKey: ['my_context'] });
+                onClose();
+              } catch (vErr: any) {
+                setErrorMsg(vErr.message);
+              } finally {
+                setLoading(false);
               }
-
-              qc.invalidateQueries({ queryKey: ['billing'] });
-              qc.invalidateQueries({ queryKey: ['payments'] });
-              qc.invalidateQueries({ queryKey: ['school_billing_config'] });
-              qc.invalidateQueries({ queryKey: ['school_info'] });
-              qc.invalidateQueries({ queryKey: ['my_context'] });
-              onClose();
-            } catch (vErr: any) {
-              setErrorMsg(vErr.message);
-            } finally {
-              setLoading(false);
-            }
+            })();
           },
           onClose: () => {
             setLoading(false);
