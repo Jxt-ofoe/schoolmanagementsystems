@@ -95,7 +95,8 @@ export async function handlePaystackInit(body, authHeader) {
       .select('*')
       .eq('school_id', school_id)
       .eq('semester_id', currentSem.id)
-      .eq('is_topup', false)
+      .order('created_at', { ascending: false })
+      .limit(1)
       .maybeSingle();
 
     if (existingBill) {
@@ -149,7 +150,7 @@ export async function handlePaystackInit(body, authHeader) {
         .insert({
           school_id,
           semester_id: currentSem.id,
-          billing_frequency: 'term',
+          billing_frequency: 'semester',
           period_label: periodLabel,
           student_count: count,
           price_per_student: price,
@@ -158,11 +159,9 @@ export async function handlePaystackInit(body, authHeader) {
           fee_markup_amount: feeMarkup,
           total_payable: total,
           due_date: dueDate,
-          issue_date: issueDate,
-          snapshot_date: issueDate,
+          grace_period_end: dueDate,
           invoice_number: invNumber,
           subscription_status: 'awaiting_payment',
-          is_topup: false,
           last_calculated_at: now.toISOString(),
         })
         .select()
