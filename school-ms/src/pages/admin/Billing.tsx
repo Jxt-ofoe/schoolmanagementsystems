@@ -131,7 +131,12 @@ export default function AdminBilling() {
   const generateAllTermsMutation = useMutation({
     mutationFn: async () => {
       const { data, error } = await supabase.rpc('generate_all_school_term_invoices');
-      if (error) throw error;
+      if (error) {
+        if (error.code === 'PGRST202' || error.message?.includes('schema cache')) {
+          throw new Error('Database RPC not found. Please paste and run supabase/deploy_term_billing_rpc.sql in the Supabase SQL Editor to enable batch generation.');
+        }
+        throw error;
+      }
       return data as { generated: number; skipped: number; errors: string[] };
     },
     onSuccess: (res) => {
