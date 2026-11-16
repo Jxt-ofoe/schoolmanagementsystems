@@ -1,40 +1,46 @@
+import { z } from 'zod';
 import { createClient } from '@supabase/supabase-js';
 import { handleGetSchoolLogo } from '../school/logo.js';
 
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL || 'https://simskpwdkbcudmgzjsib.supabase.co';
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const shareIdSchema = z.string().uuid('Invalid report card share link');
 
 export async function handleReportView(shareId) {
-  if (!shareId || !UUID_RE.test(String(shareId).trim())) {
+  const parseResult = shareIdSchema.safeParse(shareId);
+  if (!parseResult.success) {
     throw new Error('Invalid or missing report card share link');
   }
 
-  const cleanShareId = String(shareId).trim().toLowerCase();
+  const cleanShareId = parseResult.data.toLowerCase();
 
-  const serviceKey = SERVICE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
-  if (!serviceKey) {
-    throw new Error('Server configuration error: SUPABASE_SERVICE_ROLE_KEY is not configured');
+  if (!SUPABASE_URL || !SERVICE_KEY) {
+    throw new Error('Server configuration error: SUPABASE environment variables are not configured');
   }
-  const adminClient = createClient(SUPABASE_URL, serviceKey, {
+
+  const adminClient = createClient(SUPABASE_URL, SERVICE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
   // 1. Fetch WhatsApp Report Share record
   const { data: share, error: shareErr } = await adminClient
     .from('whatsapp_report_shares')
-    .select('*')
+    .select('id, student_id, school_id, semester_id, class_id, status, parent_name, parent_phone, created_at')
     .eq('id', cleanShareId)
     .maybeSingle();
 
   if (shareErr) {
-    console.error('Error querying whatsapp_report_shares:', shareErr.message);
+    console.error('Error querying whatsapp_report_shares:', shareErr);
     throw new Error('Could not verify report card share link');
   }
 
   if (!share) {
     throw new Error('This report card link does not exist or has expired');
+  }
+
+  if (share.status && share.status !== 'sent' && share.status !== 'delivered' && share.status !== 'active') {
+    throw new Error('This report card link is no longer active');
   }
 
   const { student_id, school_id, semester_id, class_id } = share;
@@ -117,7 +123,7 @@ export async function handleReportView(shareId) {
   try {
     const { data: repData } = await adminClient
       .from('terminal_reports')
-      .select('*')
+      .select('id, attendance, position, total_score, overall_average, class_average, promoted, conduct, attitude, interest, form_master_remarks, headmaster_remarks, next_term_begins, snapshot_data')
       .eq('student_id', student_id)
       .eq('semester_id', semester_id)
       .maybeSingle();
@@ -215,6 +221,7 @@ export default async function handler(req, res) {
     res.setHeader('Content-Type', 'application/json');
     return res.end(JSON.stringify(result));
   } catch (err) {
+    console.error('Report view error:', err);
     res.statusCode = 400;
     res.setHeader('Content-Type', 'application/json');
     return res.end(JSON.stringify({ error: err.message || 'Failed to load report card' }));

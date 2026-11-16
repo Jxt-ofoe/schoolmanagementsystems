@@ -1,20 +1,37 @@
+import crypto from 'node:crypto';
+import { z } from 'zod';
 import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL || 'https://simskpwdkbcudmgzjsib.supabase.co';
-const ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_3awl3YZ_9dzYOyLGRv0EWw_0e2o3z_x';
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+const ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
 
-export async function handlePaystackInit(body, authHeader) {
+const paystackInitSchema = z.object({
+  school_id: z.string().uuid('Invalid school ID format'),
+  billing_id: z.string().uuid().or(z.literal('current')).optional(),
+  email: z.string().email('Invalid email address').max(150).optional(),
+  callback_url: z.string().url('Invalid callback URL').max(500).optional(),
+});
+
+export async function handlePaystackInit(rawBody, authHeader) {
+  if (!SUPABASE_URL || !ANON_KEY) {
+    throw new Error('Server configuration error: SUPABASE_URL and ANON_KEY must be configured in environment');
+  }
+
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!serviceKey) {
     throw new Error('Server configuration error: SUPABASE_SERVICE_ROLE_KEY is not configured');
   }
 
-  const { school_id, billing_id, email, callback_url } = body || {};
-  if (!school_id) {
-    throw new Error('School ID is required');
+  // 1. Zod input validation
+  const parseResult = paystackInitSchema.safeParse(rawBody);
+  if (!parseResult.success) {
+    const errorMsg = parseResult.error.issues.map((i) => i.message).join('; ');
+    throw new Error(`Invalid input: ${errorMsg}`);
   }
 
-  // 1. Verify caller authentication
+  const { school_id, billing_id, email, callback_url } = parseResult.data;
+
+  // 2. Verify caller authentication
   const token = (authHeader || '').replace(/^Bearer\s+/i, '');
   if (!token) {
     throw new Error('Unauthorized: missing token');
@@ -53,7 +70,7 @@ export async function handlePaystackInit(body, authHeader) {
     }
   }
 
-  // 2. Fetch School and Billing Record
+  // 3. Fetch School and Billing Record
   const { data: school, error: sErr } = await adminClient
     .from('schools')
     .select('id, name, code, email, phone')
@@ -102,7 +119,7 @@ export async function handlePaystackInit(body, authHeader) {
     if (existingBill) {
       bill = existingBill;
     } else {
-      // 30-day grace period active: school is paying early! Generate the term invoice on-demand.
+      // 30-day grace period active: school is paying early. Generate the term invoice on-demand.
       const { count: studentCount } = await adminClient
         .from('students')
         .select('*', { count: 'exact', head: true })
@@ -142,7 +159,7 @@ export async function handlePaystackInit(body, authHeader) {
       const dueDateObj = new Date(now);
       dueDateObj.setDate(dueDateObj.getDate() + 7);
       const dueDate = dueDateObj.toISOString().slice(0, 10);
-      const invNumber = 'INV-' + issueDate.replace(/-/g, '').slice(2, 6) + '-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+      const invNumber = 'INV-' + issueDate.replace(/-/g, '').slice(2, 6) + '-' + crypto.randomBytes(3).toString('hex').toUpperCase();
       const periodLabel = currentSem.name + (currentSem.academic_years?.name ? ' · ' + currentSem.academic_years.name : '');
 
       const { data: newBill, error: createErr } = await adminClient
@@ -168,7 +185,7 @@ export async function handlePaystackInit(body, authHeader) {
         .single();
 
       if (createErr || !newBill) {
-        throw new Error('Failed to generate term invoice: ' + (createErr?.message || 'unknown error'));
+        throw new Error('Failed to generate term invoice');
       }
       bill = newBill;
     }
@@ -184,10 +201,10 @@ export async function handlePaystackInit(body, authHeader) {
       .maybeSingle();
     if (!cfgErr) config = cfg;
   } catch (_e) {
-    // Migration not yet applied, fallback gracefully
+    // Migration fallback
   }
 
-  // 3. Transparent Calculation Breakdown
+  // 4. Transparent Calculation Breakdown
   const subtotal = Number(bill.student_count) * Number(bill.price_per_student);
   let discount = Number(bill.discount_amount || 0);
 
@@ -200,8 +217,6 @@ export async function handlePaystackInit(body, authHeader) {
   }
 
   const netSubtotal = Math.max(0, subtotal - discount);
-
-  // Fee markup: 3% standard markup if pass_fee_markup is true
   const passMarkup = config ? config.pass_fee_markup !== false : true;
   const markupPercent = config ? Number(config.fee_markup_percent ?? 3.0) : 3.0;
   const feeMarkup = passMarkup ? Math.round(netSubtotal * (markupPercent / 100) * 100) / 100 : 0;
@@ -219,8 +234,10 @@ export async function handlePaystackInit(body, authHeader) {
     })
     .eq('id', bill.id);
 
-  // 4. Paystack Reference & Metadata
-  const reference = `PSTK_${school.code ? school.code.slice(0, 10) : 'SCH'}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  // 5. Cryptographically secure Paystack Reference & Metadata
+  const randSuffix = crypto.randomBytes(4).toString('hex').toUpperCase();
+  const cleanCode = (school.code || 'SCH').replace(/[^a-zA-Z0-9]/g, '').slice(0, 8);
+  const reference = `PSTK_${cleanCode}_${Date.now()}_${randSuffix}`;
   const customerEmail = email || school.email || callerEmail || 'billing@schoolms.org';
 
   const metadata = {
@@ -247,7 +264,7 @@ export async function handlePaystackInit(body, authHeader) {
     ],
   };
 
-  // 5. Initialize with Paystack API
+  // 6. Initialize with Paystack API
   const paystackSecret = process.env.PAYSTACK_SECRET_KEY;
   const paystackPublic = process.env.VITE_PAYSTACK_PUBLIC_KEY || process.env.PAYSTACK_PUBLIC_KEY;
 
@@ -280,12 +297,12 @@ export async function handlePaystackInit(body, authHeader) {
     authUrl = pstkData.data.authorization_url;
     accessCode = pstkData.data.access_code;
   } else {
-    // Development / Test mode fallback
+    // Development mode fallback
     accessCode = `test_acc_${Date.now()}`;
     authUrl = `https://checkout.paystack.com/${accessCode}`;
   }
 
-  // 6. Record transaction attempt in paystack_transactions
+  // 7. Record transaction attempt in paystack_transactions
   await adminClient.from('paystack_transactions').insert({
     school_id,
     billing_id: bill.id,
@@ -304,7 +321,7 @@ export async function handlePaystackInit(body, authHeader) {
       authorization_url: authUrl,
       access_code: accessCode,
       reference,
-      public_key: paystackPublic || 'pk_test_sample_schoolms',
+      public_key: paystackPublic || '',
       customer_email: customerEmail,
       amount_in_pesewas: amountInPesewas,
       breakdown: {
@@ -326,6 +343,7 @@ export default async function handler(req, res) {
       const result = await handlePaystackInit(req.body, authHeader);
       res.status(200).json(result);
     } catch (err) {
+      console.error('Paystack init error:', err);
       res.status(400).json({ error: err.message || 'Failed to initialize Paystack checkout' });
     }
   } else {

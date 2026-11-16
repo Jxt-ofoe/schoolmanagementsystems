@@ -1,9 +1,13 @@
 import crypto from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL || 'https://simskpwdkbcudmgzjsib.supabase.co';
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
 
 export async function handlePaystackWebhook(rawBody, signature) {
+  if (!SUPABASE_URL) {
+    throw new Error('Server configuration error: SUPABASE_URL is not configured');
+  }
+
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!serviceKey) {
     throw new Error('Server configuration error: SUPABASE_SERVICE_ROLE_KEY is not configured');
@@ -15,9 +19,10 @@ export async function handlePaystackWebhook(rawBody, signature) {
   }
 
   // 1. Verify HMAC SHA-512 signature using constant-time comparison
+  const bodyString = typeof rawBody === 'string' ? rawBody : JSON.stringify(rawBody);
   const hash = crypto
     .createHmac('sha512', webhookSecret)
-    .update(typeof rawBody === 'string' ? rawBody : JSON.stringify(rawBody))
+    .update(bodyString)
     .digest('hex');
 
   const hashBuffer = Buffer.from(hash, 'hex');
@@ -47,7 +52,11 @@ export async function handlePaystackWebhook(rawBody, signature) {
 
   // 2. Handle 'charge.success'
   if (event === 'charge.success') {
-    // Idempotency: check if payment already recorded
+    if (!reference) {
+      return { status: 'ignored', message: 'No reference in charge.success' };
+    }
+
+    // Idempotency: check if payment is already recorded
     const { data: existingPayment } = await adminClient
       .from('payments')
       .select('id')
@@ -55,7 +64,6 @@ export async function handlePaystackWebhook(rawBody, signature) {
       .maybeSingle();
 
     if (existingPayment) {
-      // Record webhook receipt without duplicate payment
       await adminClient.from('paystack_transactions').update({
         webhook_received_at: new Date().toISOString(),
       }).eq('reference', reference);
@@ -64,8 +72,21 @@ export async function handlePaystackWebhook(rawBody, signature) {
     }
 
     if (schoolId && billingId) {
-      // Insert verified payment record
-      await adminClient.from('payments').insert({
+      // Verify the invoice exists and belongs to this school
+      const { data: invoice } = await adminClient
+        .from('semester_billing')
+        .select('id, school_id, total_payable, amount_due, amount_paid')
+        .eq('id', billingId)
+        .eq('school_id', schoolId)
+        .maybeSingle();
+
+      if (!invoice) {
+        console.error('Paystack webhook: invoice not found for metadata', { billingId, schoolId });
+        return { status: 'error', message: 'Invoice not found for metadata' };
+      }
+
+      // Insert verified payment record atomically
+      const { error: pmtErr } = await adminClient.from('payments').insert({
         school_id: schoolId,
         billing_id: billingId,
         amount: amountPaidGHS,
@@ -74,9 +95,14 @@ export async function handlePaystackWebhook(rawBody, signature) {
         paid_on: paidDate,
         verification: 'provider_verified',
         provider: 'paystack',
-        notes: `Webhook confirmed payment via Paystack (${data.channel})`,
+        notes: `Webhook confirmed payment via Paystack (${data.channel || 'online'})`,
         status: 'valid',
       });
+
+      if (pmtErr && pmtErr.code !== '23505') {
+        console.error('Paystack webhook insert payment error:', pmtErr);
+        throw new Error('Failed to record payment');
+      }
 
       // Update Paystack transaction record
       await adminClient.from('paystack_transactions').upsert({
@@ -153,8 +179,12 @@ export async function handlePaystackWebhook(rawBody, signature) {
         .eq('id', schoolId)
         .eq('status', 'suspended');
 
-      // Enforce school billing status and unsuspension check
-      await adminClient.rpc('check_and_enforce_school_billing_status', { p_school_id: schoolId }).catch(() => { });
+      // Enforce school billing status
+      try {
+        await adminClient.rpc('check_and_enforce_school_billing_status', { p_school_id: schoolId });
+      } catch (_e) {
+        // Non-critical
+      }
 
       // Audit log
       await adminClient.from('audit_logs').insert({
@@ -203,7 +233,6 @@ export async function handlePaystackWebhook(rawBody, signature) {
         .eq('school_id', schoolId)
         .neq('status', 'active');
 
-      // Record failure reminder log
       await adminClient.from('billing_reminders').upsert({
         school_id: schoolId,
         billing_id: billingId || null,
@@ -231,7 +260,8 @@ export default async function handler(req, res) {
       const result = await handlePaystackWebhook(rawBody, signature);
       res.status(200).json(result);
     } catch (err) {
-      res.status(400).json({ error: err.message || 'Webhook processing failed' });
+      console.error('Paystack webhook error:', err);
+      res.status(400).json({ error: 'Webhook processing failed' });
     }
   } else {
     res.status(405).json({ error: 'Method not allowed' });

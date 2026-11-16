@@ -1,20 +1,31 @@
+import { z } from 'zod';
 import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL || 'https://simskpwdkbcudmgzjsib.supabase.co';
-const ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_3awl3YZ_9dzYOyLGRv0EWw_0e2o3z_x';
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+const ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
 
-export async function handleSyncTopup(body, authHeader) {
+const syncTopupSchema = z.object({
+  school_id: z.string().uuid('Invalid school ID format'),
+});
+
+export async function handleSyncTopup(rawBody, authHeader) {
+  if (!SUPABASE_URL || !ANON_KEY) {
+    throw new Error('Server configuration error: SUPABASE_URL and ANON_KEY must be configured in environment');
+  }
+
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!serviceKey) {
     throw new Error('Server configuration error: SUPABASE_SERVICE_ROLE_KEY is not configured');
   }
 
-  const { school_id } = body || {};
-  if (!school_id) {
-    throw new Error('School ID is required');
+  // 1. Zod input validation
+  const parseResult = syncTopupSchema.safeParse(rawBody);
+  if (!parseResult.success) {
+    throw new Error('School ID is invalid');
   }
+  const { school_id } = parseResult.data;
 
-  // 1. Verify caller authentication
+  // 2. Verify caller authentication
   const token = (authHeader || '').replace(/^Bearer\s+/i, '');
   if (!token) {
     throw new Error('Unauthorized: missing token');
@@ -34,7 +45,7 @@ export async function handleSyncTopup(body, authHeader) {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  // Verify caller is super admin OR member of the school
+  // Verify caller is super admin OR headmaster of the school
   const { data: sa } = await adminClient.from('platform_admins').select('user_id').eq('user_id', callerId).maybeSingle();
   const isSuperAdmin = !!sa;
 
@@ -47,12 +58,12 @@ export async function handleSyncTopup(body, authHeader) {
       .eq('status', 'active')
       .maybeSingle();
 
-    if (!membership) {
-      throw new Error('Unauthorized: caller is not an active member of this school');
+    if (!membership || membership.role !== 'headmaster') {
+      throw new Error('Unauthorized: only the headmaster or platform administrator can sync billing status');
     }
   }
 
-  // 2. Fetch active term / semester
+  // 3. Fetch active term / semester
   const { data: currentSem } = await adminClient
     .from('semesters')
     .select('id, name, starts_on, academic_year_id, academic_years(name)')
@@ -64,22 +75,18 @@ export async function handleSyncTopup(body, authHeader) {
     return { synced: false, reason: 'No active semester found' };
   }
 
-  // 3. Fetch latest invoice for this term
-  const { data: currentBill } = await adminClient
+  // 4. Fetch main term invoice
+  const { data: mainBill } = await adminClient
     .from('semester_billing')
     .select('*')
     .eq('school_id', school_id)
     .eq('semester_id', currentSem.id)
+    .is('is_topup', false)
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
 
-  if (!currentBill) {
-    // No invoice has been generated yet for this term (e.g. grace period active)
-    return { synced: false, reason: 'No term invoice generated yet' };
-  }
-
-  // 4. Fetch current live active students count
+  // 5. Fetch current live active students count
   const { count: liveActiveCount } = await adminClient
     .from('students')
     .select('*', { count: 'exact', head: true })
@@ -88,77 +95,36 @@ export async function handleSyncTopup(body, authHeader) {
 
   const live = liveActiveCount || 0;
 
-  if (live <= Number(currentBill.student_count || 0)) {
-    return {
-      synced: true,
-      updated: false,
-      liveActiveCount: live,
-      invoicedCount: currentBill.student_count,
-      message: 'Invoice already reflects all active students',
-    };
+  // 6. Run database enforcement function to recalculate billing and top-up counts
+  let statusReport = null;
+  try {
+    const { data: enfData } = await adminClient.rpc('check_and_enforce_school_billing_status', {
+      p_school_id: school_id,
+    });
+    statusReport = enfData;
+  } catch (err) {
+    console.warn('Billing enforcement RPC notice:', err);
   }
 
-  // 5. Update invoice to include newly added students
-  const { data: pSettings } = await adminClient
-    .from('platform_settings')
-    .select('price_per_student')
-    .eq('id', true)
-    .maybeSingle();
-  const defaultPrice = Number(pSettings?.price_per_student ?? 3.0);
-
-  const { data: cfg } = await adminClient
-    .from('school_billing_configs')
-    .select('*')
-    .eq('school_id', school_id)
-    .maybeSingle();
-
-  const price = Number(cfg?.price_per_student ?? defaultPrice);
-  const subtotal = live * price;
-
-  let discount = 0;
-  if (cfg?.discount_type === 'percentage' && Number(cfg.discount_value) > 0) {
-    discount = Math.round(subtotal * (Number(cfg.discount_value) / 100) * 100) / 100;
-  } else if (cfg?.discount_type === 'fixed' && Number(cfg.discount_value) > 0) {
-    discount = Math.min(subtotal, Number(cfg.discount_value));
-  }
-
-  const passMarkup = cfg ? cfg.pass_fee_markup !== false : true;
-  const markupPercent = cfg ? Number(cfg.fee_markup_percent ?? 3.0) : 3.0;
-  const feeMarkup = passMarkup ? Math.round((subtotal - discount) * (markupPercent / 100) * 100) / 100 : 0;
-  const total = Math.max(0, subtotal - discount + feeMarkup);
-  const amountPaid = Number(currentBill.amount_paid || 0);
-
-  const newStudents = live - Number(currentBill.student_count || 0);
-
-  const { data: updatedBill, error: updateErr } = await adminClient
+  // 7. Fetch all active invoices for this term (main + top-ups)
+  const { data: allTermBills } = await adminClient
     .from('semester_billing')
-    .update({
-      student_count: live,
-      discount_amount: discount,
-      fee_markup_amount: feeMarkup,
-      total_payable: total,
-      subscription_status: total <= amountPaid ? 'paid' : 'awaiting_payment',
-      notes: `Term invoice synced with ${live} active students (+${newStudents} new student addition)`,
-      last_calculated_at: new Date().toISOString(),
-    })
-    .eq('id', currentBill.id)
-    .select()
-    .single();
+    .select('id, invoice_number, is_topup, student_count, total_payable, amount_paid, subscription_status')
+    .eq('school_id', school_id)
+    .eq('semester_id', currentSem.id);
 
-  if (updateErr || !updatedBill) {
-    throw new Error('Failed to update term invoice: ' + (updateErr?.message || 'unknown error'));
-  }
+  const invoicedTotalStudents = (allTermBills || []).reduce((acc, b) => acc + (b.student_count || 0), 0);
 
   return {
     synced: true,
-    updated: true,
-    previousCount: currentBill.student_count,
-    newCount: live,
-    newStudentsAdded: newStudents,
-    totalPayable: total,
-    amountPaid,
-    remainingBalance: Math.max(0, total - amountPaid),
-    bill: updatedBill,
+    updated: false,
+    liveActiveCount: live,
+    invoicedStudentCount: invoicedTotalStudents,
+    mainBillCount: mainBill?.student_count ?? 0,
+    topupCount: (allTermBills || []).filter((b) => b.is_topup).length,
+    schoolStatus: statusReport?.school_status ?? 'active',
+    isOverdue: statusReport?.is_overdue ?? false,
+    message: 'Billing and top-up counts synchronized with database records',
   };
 }
 
@@ -169,6 +135,7 @@ export default async function handler(req, res) {
       const result = await handleSyncTopup(req.body, authHeader);
       res.status(200).json(result);
     } catch (err) {
+      console.error('Sync topup error:', err);
       res.status(400).json({ error: err.message || 'Failed to sync topup' });
     }
   } else {

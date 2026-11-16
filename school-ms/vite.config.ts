@@ -229,6 +229,30 @@ function adminApiPlugin() {
     }
   };
 
+  const syncTopupHandler = async (req: any, res: any) => {
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', (chunk: any) => { body += chunk; });
+      req.on('end', async () => {
+        try {
+          const data = JSON.parse(body);
+          const authHeader = req.headers['authorization'];
+          const { handleSyncTopup } = await import('./api/billing/sync-topup.js');
+          const result = await handleSyncTopup(data, authHeader);
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify(result));
+        } catch (err: any) {
+          res.statusCode = 400;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: err.message || 'Failed to sync topup' }));
+        }
+      });
+    } else {
+      res.statusCode = 405;
+      res.end(JSON.stringify({ error: 'Method not allowed' }));
+    }
+  };
+
   return {
     name: 'admin-api-plugin',
     configureServer(server: any) {
@@ -241,6 +265,7 @@ function adminApiPlugin() {
       server.middlewares.use('/api/billing/paystack-webhook', paystackWebhookHandler);
       server.middlewares.use('/api/billing/charge-recurring', chargeRecurringHandler);
       server.middlewares.use('/api/billing/send-reminder', sendReminderHandler);
+      server.middlewares.use('/api/billing/sync-topup', syncTopupHandler);
     },
     configurePreviewServer(server: any) {
       server.middlewares.use('/api/staff/create', handler);
@@ -252,6 +277,7 @@ function adminApiPlugin() {
       server.middlewares.use('/api/billing/paystack-webhook', paystackWebhookHandler);
       server.middlewares.use('/api/billing/charge-recurring', chargeRecurringHandler);
       server.middlewares.use('/api/billing/send-reminder', sendReminderHandler);
+      server.middlewares.use('/api/billing/sync-topup', syncTopupHandler);
     },
   };
 }

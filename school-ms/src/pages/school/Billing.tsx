@@ -31,7 +31,8 @@ declare global {
 }
 
 export default function SchoolBillingPage() {
-  const { schoolId } = useSchool();
+  const { schoolId, role } = useSchool();
+  const isHeadmaster = role === 'headmaster';
   const qc = useQueryClient();
 
   const [payingBill, setPayingBill] = useState<BillingOverview | null>(null);
@@ -207,14 +208,16 @@ export default function SchoolBillingPage() {
         title="School Billing & Subscription"
         subtitle={`Your agreed billing rate is ${formatMoney(price)} per student per term. Teachers never pay.`}
         actions={
-          primaryUnpaidBill ? (
-            <Button onClick={() => setPayingBill(primaryUnpaidBill)}>
-              Pay Outstanding Bill ({formatMoney(primaryUnpaidBill.balance)})
-            </Button>
-          ) : !currentBill && count > 0 ? (
-            <Button onClick={() => handlePayEstimated()}>
-              Pay with Paystack ({formatMoney(estimate.totalPayable)})
-            </Button>
+          isHeadmaster ? (
+            primaryUnpaidBill ? (
+              <Button onClick={() => setPayingBill(primaryUnpaidBill)}>
+                Pay Outstanding Bill ({formatMoney(primaryUnpaidBill.balance)})
+              </Button>
+            ) : !currentBill && count > 0 ? (
+              <Button onClick={() => handlePayEstimated()}>
+                Pay with Paystack ({formatMoney(estimate.totalPayable)})
+              </Button>
+            ) : undefined
           ) : undefined
         }
       />
@@ -314,14 +317,16 @@ export default function SchoolBillingPage() {
       <Card
         title={currentBill ? `Current Term Invoice · ${currentBill.period_label || 'Current Term'}` : `Estimated Bill · ${current ? semesterLabel(current) : 'Current Term'}`}
         actions={
-          currentBill && Number(currentBill.balance) > 0 ? (
-            <Button size="sm" onClick={() => setPayingBill(currentBill)}>
-              Pay with Paystack →
-            </Button>
-          ) : !currentBill && count > 0 ? (
-            <Button size="sm" onClick={() => handlePayEstimated()}>
-              Pay with Paystack →
-            </Button>
+          isHeadmaster ? (
+            currentBill && Number(currentBill.balance) > 0 ? (
+              <Button size="sm" onClick={() => setPayingBill(currentBill)}>
+                Pay with Paystack →
+              </Button>
+            ) : !currentBill && count > 0 ? (
+              <Button size="sm" onClick={() => handlePayEstimated()}>
+                Pay with Paystack →
+              </Button>
+            ) : undefined
           ) : undefined
         }
       >
@@ -393,7 +398,7 @@ export default function SchoolBillingPage() {
         </div>
 
         {/* Prominent Direct Payment Action Banner */}
-        {currentBill && Number(currentBill.balance) > 0 && (
+        {isHeadmaster && currentBill && Number(currentBill.balance) > 0 && (
           <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, background: 'rgba(20, 108, 67, 0.08)', padding: '14px 18px', borderRadius: 8, border: '1px solid rgba(20, 108, 67, 0.25)' }}>
             <div>
               <strong style={{ fontSize: '1rem', color: 'var(--green-900)' }}>Term Invoice Outstanding</strong>
@@ -405,7 +410,7 @@ export default function SchoolBillingPage() {
           </div>
         )}
 
-        {!currentBill && count > 0 && (
+        {isHeadmaster && !currentBill && count > 0 && (
           <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, background: 'rgba(20, 108, 67, 0.08)', padding: '14px 18px', borderRadius: 8, border: '1px solid rgba(20, 108, 67, 0.25)' }}>
             <div>
               <strong style={{ fontSize: '1rem', color: 'var(--green-900)' }}>Ready to settle your term bill?</strong>
@@ -474,7 +479,7 @@ export default function SchoolBillingPage() {
                       </span>
                     </td>
                     <td>
-                      {Number(b.balance) > 0 && (
+                      {isHeadmaster && Number(b.balance) > 0 && (
                         <Button size="sm" onClick={() => setPayingBill(b)}>
                           Pay Top-up
                         </Button>
@@ -541,7 +546,7 @@ export default function SchoolBillingPage() {
                     </td>
                     <td className="small">{formatDate(b.due_date)}</td>
                     <td>
-                      {Number(b.balance) > 0 && (
+                      {isHeadmaster && Number(b.balance) > 0 && (
                         <Button size="sm" onClick={() => setPayingBill(b)}>
                           Pay with Paystack
                         </Button>

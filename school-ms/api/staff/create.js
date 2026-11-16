@@ -1,38 +1,43 @@
+import { z } from 'zod';
 import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL || 'https://simskpwdkbcudmgzjsib.supabase.co';
-const ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_3awl3YZ_9dzYOyLGRv0EWw_0e2o3z_x';
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+const ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-export async function handleCreateStaff(body, authHeader) {
-  if (!SERVICE_KEY) {
-    throw new Error('Server configuration error: SUPABASE_SERVICE_ROLE_KEY environment variable is not configured');
+const createStaffSchema = z.object({
+  email: z.string().trim().toLowerCase().email('Invalid email address').max(150),
+  password: z
+    .string()
+    .min(8, 'Password must be at least 8 characters long')
+    .max(72, 'Password must be at most 72 characters')
+    .regex(/[A-Za-z]/, 'Password must contain at least one letter')
+    .regex(/[0-9]/, 'Password must contain at least one number'),
+  full_name: z.string().trim().min(2, 'Full name must be at least 2 characters').max(120),
+  role: z.enum(['headmaster', 'teacher'], { errorMap: () => ({ message: 'Role must be headmaster or teacher' }) }),
+  school_id: z.string().uuid('Invalid school ID format'),
+});
+
+export async function handleCreateStaff(rawBody, authHeader) {
+  if (!SUPABASE_URL || !ANON_KEY || !SERVICE_KEY) {
+    throw new Error('Server configuration error: SUPABASE environment variables are not configured');
   }
 
-  const { email, password, full_name, role, school_id } = body;
-  if (!email || !password || !full_name || !school_id || !role) {
-    throw new Error('All fields are required (name, email, password, role, school)');
+  // 1. Zod input validation
+  const parseResult = createStaffSchema.safeParse(rawBody);
+  if (!parseResult.success) {
+    const errorMsg = parseResult.error.issues.map((i) => i.message).join('; ');
+    throw new Error(`Invalid input: ${errorMsg}`);
   }
 
-  const normEmail = String(email).trim().toLowerCase();
-  const normName = String(full_name).trim();
+  const { email: normEmail, password, full_name: normName, role, school_id } = parseResult.data;
 
-  // Validate email format and reject pattern wildcards (%, _)
-  const EMAIL_RE = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
-  if (!EMAIL_RE.test(normEmail) || normEmail.includes('%') || normEmail.includes('_') || normEmail.length > 150) {
+  // Additional email hygiene: reject pattern wildcards
+  if (normEmail.includes('%') || normEmail.includes('_')) {
     throw new Error('A valid email address is required');
   }
-  if (normName.length < 2 || normName.length > 120) {
-    throw new Error('Full name must be 2–120 characters');
-  }
-  if (role !== 'headmaster' && role !== 'teacher') {
-    throw new Error('Role must be headmaster or teacher');
-  }
-  if (password.length < 8) {
-    throw new Error('Password must be at least 8 characters long');
-  }
 
-  // 1. Verify caller is authorized
+  // 2. Verify caller is authorized
   const token = (authHeader || '').replace(/^Bearer\s+/i, '');
   if (!token) {
     throw new Error('Unauthorized: please sign in again');
@@ -76,7 +81,7 @@ export async function handleCreateStaff(body, authHeader) {
     }
   }
 
-  // 2. Search for existing user safely
+  // 3. Search for existing user safely
   const { data: listData } = await adminClient.auth.admin.listUsers({ page: 1, perPage: 1000 });
   const existingUser = listData?.users?.find((u) => u.email?.toLowerCase() === normEmail);
   let userId;
@@ -115,12 +120,9 @@ export async function handleCreateStaff(body, authHeader) {
         throw new Error('Cannot add an active Headmaster from another school as a teacher');
       }
     }
-
-    // Security Note: Existing user accounts retain their established credentials.
-    // Password is NOT overwritten to protect against account takeover.
   }
 
-  // 3. Upsert profile (only create if new to avoid cross-tenant name tampering)
+  // 4. Upsert profile (only create if new to avoid cross-tenant name tampering)
   if (outcome === 'created') {
     await adminClient.from('profiles').upsert({
       id: userId,
@@ -129,7 +131,7 @@ export async function handleCreateStaff(body, authHeader) {
     });
   }
 
-  // 4. Verify membership doesn't already exist in this school
+  // 5. Verify membership doesn't already exist in this school
   const { data: existingMem } = await adminClient
     .from('school_memberships')
     .select('id, role, status')
@@ -149,7 +151,7 @@ export async function handleCreateStaff(body, authHeader) {
   });
   if (memErr) throw memErr;
 
-  // 5. Audit log
+  // 6. Audit log
   await adminClient.from('audit_logs').insert({
     school_id,
     actor_id: callerId,
@@ -171,6 +173,9 @@ export default async function handler(req, res) {
   let body = '';
   req.on('data', (chunk) => {
     body += chunk;
+    if (body.length > 50000) {
+      req.destroy();
+    }
   });
   req.on('end', async () => {
     try {
@@ -180,6 +185,7 @@ export default async function handler(req, res) {
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify(result));
     } catch (err) {
+      console.error('Create staff error:', err);
       res.statusCode = 400;
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({ error: err.message || 'Failed to create staff account' }));

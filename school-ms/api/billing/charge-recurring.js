@@ -1,15 +1,30 @@
+import { z } from 'zod';
 import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL || 'https://simskpwdkbcudmgzjsib.supabase.co';
-const ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_3awl3YZ_9dzYOyLGRv0EWw_0e2o3z_x';
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+const ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
 
-export async function handleChargeRecurring(body, authHeader) {
+const chargeRecurringSchema = z.object({
+  target_school_id: z.string().uuid('Invalid school ID format').optional(),
+});
+
+export async function handleChargeRecurring(rawBody, authHeader) {
+  if (!SUPABASE_URL || !ANON_KEY) {
+    throw new Error('Server configuration error: SUPABASE_URL and ANON_KEY must be configured in environment');
+  }
+
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!serviceKey) {
     throw new Error('Server configuration error: SUPABASE_SERVICE_ROLE_KEY is not configured');
   }
 
-  // 1. Verify caller authentication (Super Admin or Cron key)
+  const parseResult = chargeRecurringSchema.safeParse(rawBody || {});
+  if (!parseResult.success) {
+    throw new Error('Invalid recurring charge parameters');
+  }
+  const { target_school_id } = parseResult.data;
+
+  // 1. Verify caller authentication (Super Admin only)
   const token = (authHeader || '').replace(/^Bearer\s+/i, '');
   if (!token) {
     throw new Error('Unauthorized: missing token');
@@ -34,8 +49,6 @@ export async function handleChargeRecurring(body, authHeader) {
     throw new Error('Unauthorized: only platform super administrators can trigger recurring billing charges');
   }
 
-  const { target_school_id } = body || {};
-
   // 2. Query monthly schools eligible for recurring card charge
   let qy = adminClient
     .from('school_billing_configs')
@@ -50,11 +63,6 @@ export async function handleChargeRecurring(body, authHeader) {
 
   const { data: eligibleConfigs, error: cfgErr } = await qy;
   if (cfgErr) {
-    if (cfgErr.code === 'PGRST205' || cfgErr.message?.includes('schema cache')) {
-      throw new Error(
-        "Database migration required: The table 'public.school_billing_configs' does not exist in Supabase yet. Please run the SQL migration 'supabase/migrations/20261102000011_flexible_billing_and_paystack.sql' in your Supabase SQL Editor."
-      );
-    }
     throw new Error(`Failed to query eligible schools: ${cfgErr.message}`);
   }
 
@@ -137,7 +145,9 @@ export async function handleChargeRecurring(body, authHeader) {
         chargeSuccess = pstkRes.status && pstkRes.data?.status === 'success';
         chargeData = pstkRes.data;
       } else {
-        // Test mode simulation
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error('Live Paystack secret key required in production');
+        }
         chargeSuccess = true;
         chargeData = {
           reference,
@@ -162,7 +172,6 @@ export async function handleChargeRecurring(body, authHeader) {
           status: 'valid',
         });
 
-        // Advance next billing date
         const nextDate = new Date();
         nextDate.setMonth(nextDate.getMonth() + 1);
 
@@ -184,7 +193,6 @@ export async function handleChargeRecurring(body, authHeader) {
           reference,
         });
       } else {
-        // Set grace period
         const graceEnd = new Date();
         graceEnd.setDate(graceEnd.getDate() + (cfg.grace_period_days || 7));
 
@@ -224,7 +232,8 @@ export default async function handler(req, res) {
       const result = await handleChargeRecurring(req.body, authHeader);
       res.status(200).json(result);
     } catch (err) {
-      res.status(400).json({ error: err.message || 'Recurring billing charge failed' });
+      console.error('Charge recurring error:', err);
+      res.status(400).json({ error: err.message || 'Recurring charge failed' });
     }
   } else {
     res.status(405).json({ error: 'Method not allowed' });

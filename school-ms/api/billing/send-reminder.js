@@ -1,13 +1,30 @@
+import { z } from 'zod';
 import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL || 'https://simskpwdkbcudmgzjsib.supabase.co';
-const ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_3awl3YZ_9dzYOyLGRv0EWw_0e2o3z_x';
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+const ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
 
-export async function handleSendReminder(body, authHeader) {
+const sendReminderSchema = z.object({
+  school_id: z.string().uuid('Invalid school ID format'),
+  billing_id: z.string().uuid().nullable().optional(),
+  reminder_type: z.enum(['due_soon', 'due_today', 'failed', 'grace_warning', 'auto_renewal_notice']).optional(),
+});
+
+export async function handleSendReminder(rawBody, authHeader) {
+  if (!SUPABASE_URL || !ANON_KEY) {
+    throw new Error('Server configuration error: SUPABASE_URL and ANON_KEY must be configured in environment');
+  }
+
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!serviceKey) {
     throw new Error('Server configuration error: SUPABASE_SERVICE_ROLE_KEY is not configured');
   }
+
+  const parseResult = sendReminderSchema.safeParse(rawBody || {});
+  if (!parseResult.success) {
+    throw new Error('Invalid reminder parameters');
+  }
+  const { school_id, billing_id, reminder_type } = parseResult.data;
 
   const token = (authHeader || '').replace(/^Bearer\s+/i, '');
   if (!token) {
@@ -33,13 +50,7 @@ export async function handleSendReminder(body, authHeader) {
     throw new Error('Unauthorized: only platform super administrators can dispatch billing reminders');
   }
 
-  const { school_id, billing_id, reminder_type } = body || {};
-  if (!school_id) {
-    throw new Error('School ID is required');
-  }
-
-  const validTypes = ['due_soon', 'due_today', 'failed', 'grace_warning', 'auto_renewal_notice'];
-  const type = validTypes.includes(reminder_type) ? reminder_type : 'due_soon';
+  const type = reminder_type || 'due_soon';
 
   // 1. Fetch school and billing details
   const { data: school } = await adminClient
@@ -98,44 +109,37 @@ export async function handleSendReminder(body, authHeader) {
     case 'grace_warning':
       message = `Urgent: The grace period for ${school.name} is expiring shortly. Please settle your outstanding invoice immediately to prevent service disruption.`;
       break;
-    default:
-      message = `Reminder: Please review your pending subscription invoice for ${school.name}.`;
+    case 'auto_renewal_notice':
+      message = `Notice: Your monthly subscription for ${school.name} is scheduled for automatic renewal in 3 days.`;
+      break;
   }
 
-  // 4. Record reminder in billing_reminders table (enforces duplicate prevention)
-  const { error: insErr } = await adminClient.from('billing_reminders').insert({
-    school_id,
-    billing_id: billing_id || null,
-    reminder_type: type,
-    recipient_phone: recipientPhone,
-    recipient_email: recipientEmail,
-    channel: 'sms',
-    message,
-    status: 'sent',
-  });
+  // 4. Record reminder log
+  const { data: reminderLog, error: remErr } = await adminClient
+    .from('billing_reminders')
+    .insert({
+      school_id,
+      billing_id: billing_id || null,
+      reminder_type: type,
+      recipient_phone: recipientPhone,
+      recipient_email: recipientEmail,
+      channel: 'sms',
+      message,
+      status: 'sent',
+      sent_at: new Date().toISOString(),
+    })
+    .select()
+    .single();
 
-  if (insErr && insErr.code === '23505') {
-    return { success: true, duplicate_prevented: true, message: 'Duplicate reminder prevented by unique constraint' };
+  if (remErr) {
+    throw new Error(`Failed to record reminder: ${remErr.message}`);
   }
-
-  // Also record in-app notification record
-  await adminClient.from('billing_reminders').insert({
-    school_id,
-    billing_id: billing_id || null,
-    reminder_type: type,
-    recipient_phone: recipientPhone,
-    recipient_email: recipientEmail,
-    channel: 'in_app',
-    message,
-    status: 'sent',
-  }).catch(() => null);
 
   return {
     success: true,
-    reminder_type: type,
-    school_name: school.name,
-    recipient: recipientPhone || recipientEmail || 'School Admin',
-    message,
+    reminder: reminderLog,
+    recipient_phone: recipientPhone,
+    recipient_email: recipientEmail,
   };
 }
 
@@ -146,7 +150,8 @@ export default async function handler(req, res) {
       const result = await handleSendReminder(req.body, authHeader);
       res.status(200).json(result);
     } catch (err) {
-      res.status(400).json({ error: err.message || 'Failed to send billing reminder' });
+      console.error('Send reminder error:', err);
+      res.status(400).json({ error: err.message || 'Failed to dispatch reminder' });
     }
   } else {
     res.status(405).json({ error: 'Method not allowed' });

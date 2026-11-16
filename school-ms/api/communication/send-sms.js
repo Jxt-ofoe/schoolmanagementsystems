@@ -1,8 +1,25 @@
+import { z } from 'zod';
 import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL || 'https://simskpwdkbcudmgzjsib.supabase.co';
-const ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_3awl3YZ_9dzYOyLGRv0EWw_0e2o3z_x';
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+const ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+const recipientItemSchema = z.object({
+  phone: z.string().trim().min(7).max(20),
+  name: z.string().trim().max(120).optional(),
+  student_id: z.string().uuid().nullable().optional(),
+  personalized_message: z.string().trim().max(1000).optional(),
+});
+
+const sendSmsSchema = z.object({
+  school_id: z.string().uuid('Invalid school ID format'),
+  recipients: z.array(recipientItemSchema).min(1, 'At least one recipient is required').max(500, 'Maximum 500 recipients per broadcast'),
+  message: z.string().trim().min(1, 'Message content is required').max(1000, 'Message cannot exceed 1000 characters'),
+  title: z.string().trim().max(120).optional(),
+  filter_type: z.enum(['all', 'class', 'custom']).optional(),
+  target_class_id: z.string().uuid().nullable().optional(),
+});
 
 /**
  * Normalizes phone numbers to international E.164-compatible format (defaulting to Ghana +233).
@@ -83,17 +100,21 @@ async function sendHubtelSMS({ apiKey, apiSecret, senderId, recipient, message }
   };
 }
 
-export async function handleSendSMS(body, authHeader) {
-  if (!SERVICE_KEY) {
-    throw new Error('Server configuration error: SUPABASE_SERVICE_ROLE_KEY is not configured');
+export async function handleSendSMS(rawBody, authHeader) {
+  if (!SUPABASE_URL || !ANON_KEY || !SERVICE_KEY) {
+    throw new Error('Server configuration error: SUPABASE environment variables are not configured');
   }
 
-  const { school_id, recipients, message, title, filter_type, target_class_id } = body;
-  if (!school_id || !Array.isArray(recipients) || recipients.length === 0 || !message) {
-    throw new Error('Missing required fields: school_id, recipients list, and message content');
+  // 1. Zod input validation
+  const parseResult = sendSmsSchema.safeParse(rawBody);
+  if (!parseResult.success) {
+    const errorMsg = parseResult.error.issues.map((i) => i.message).join('; ');
+    throw new Error(`Invalid input: ${errorMsg}`);
   }
 
-  // 1. Authenticate caller
+  const { school_id, recipients, message, title, filter_type, target_class_id } = parseResult.data;
+
+  // 2. Authenticate caller
   const token = (authHeader || '').replace(/^Bearer\s+/i, '');
   if (!token) throw new Error('Unauthorized: missing authorization token');
 
@@ -108,6 +129,21 @@ export async function handleSendSMS(body, authHeader) {
   const adminClient = createClient(SUPABASE_URL, SERVICE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+
+  // Verify school exists and is active (suspended schools cannot dispatch SMS)
+  const { data: school, error: schoolErr } = await adminClient
+    .from('schools')
+    .select('id, name, status')
+    .eq('id', school_id)
+    .single();
+
+  if (schoolErr || !school) {
+    throw new Error('School not found');
+  }
+
+  if (school.status === 'suspended') {
+    throw new Error('School account is suspended due to overdue billing. Settle invoices to reactivate messaging services.');
+  }
 
   // Verify caller is super admin or active headmaster of this school
   const { data: sa } = await adminClient.from('platform_admins').select('user_id').eq('user_id', callerId).maybeSingle();
@@ -126,7 +162,7 @@ export async function handleSendSMS(body, authHeader) {
     }
   }
 
-  // 2. Load school communication settings & SaaS platform shared credentials
+  // 3. Load school communication settings & SaaS platform shared credentials
   const { data: settings } = await adminClient
     .from('communication_settings')
     .select('*')
@@ -152,14 +188,14 @@ export async function handleSendSMS(body, authHeader) {
   const platformProvider = process.env.PLATFORM_SMS_PROVIDER || 'arkesel';
   const platformRatePerUnit = Number(process.env.PLATFORM_SMS_RATE || 0.05);
 
-  // If school has a private key, use it; otherwise seamlessly use the SaaS shared gateway
+  // If school has a private key, use it; otherwise use SaaS shared gateway
   const apiKey = settings?.sms_api_key || platformApiKey;
   const apiSecret = settings?.sms_api_secret || platformApiSecret;
   const senderId = (settings?.sms_sender_id || platformSenderId).slice(0, 11);
   const provider = settings?.provider || platformProvider;
   const ratePerUnit = Number(settings?.sms_rate_per_unit || platformRatePerUnit);
 
-  // 3. Create communication batch
+  // 4. Create communication batch
   const { data: batch, error: batchErr } = await adminClient
     .from('communication_batches')
     .insert({
@@ -182,7 +218,7 @@ export async function handleSendSMS(body, authHeader) {
   let totalCost = 0;
   const dispatchResults = [];
 
-  // 4. Process recipients
+  // 5. Process recipients
   for (const item of recipients) {
     const cleanPhone = formatPhoneNumber(item.phone);
     const recipientName = item.name || 'Parent/Guardian';
@@ -213,11 +249,10 @@ export async function handleSendSMS(body, authHeader) {
 
     try {
       let providerResp;
-      // If no API key configured or in demo mode, perform safe simulation
       if (!apiKey || apiKey === 'demo' || !settings?.is_sms_enabled) {
         providerResp = {
           provider: `${provider}-simulated`,
-          providerMessageId: `sim-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          providerMessageId: `sim-${Date.now()}`,
           response: { simulated: true, notice: 'Live SMS API key not configured or disabled in settings' },
         };
       } else if (provider === 'arkesel') {
@@ -283,7 +318,7 @@ export async function handleSendSMS(body, authHeader) {
     }
   }
 
-  // 5. Update batch totals
+  // 6. Update batch totals
   await adminClient
     .from('communication_batches')
     .update({
@@ -314,6 +349,7 @@ export default async function handler(req, res) {
       const result = await handleSendSMS(req.body, authHeader);
       res.status(200).json(result);
     } catch (err) {
+      console.error('Send SMS error:', err);
       res.status(400).json({ error: err.message || 'Failed to dispatch SMS' });
     }
   } else {

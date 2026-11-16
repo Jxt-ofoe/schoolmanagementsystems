@@ -1,7 +1,8 @@
+import { z } from 'zod';
 import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL || 'https://simskpwdkbcudmgzjsib.supabase.co';
-const ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_3awl3YZ_9dzYOyLGRv0EWw_0e2o3z_x';
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+const ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
 
 const ALLOWED_MIME_TYPES = {
   'image/png': 'png',
@@ -11,16 +12,29 @@ const ALLOWED_MIME_TYPES = {
   'image/gif': 'gif',
 };
 
-export async function handleSchoolLogo(body, authHeader) {
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!serviceKey) {
-    throw new Error('Server configuration error: SUPABASE_SERVICE_ROLE_KEY environment variable is not configured');
+const logoPostSchema = z.object({
+  school_id: z.string().uuid('Invalid school ID format'),
+  file: z.string().optional(),
+  content_type: z.string().optional(),
+  remove: z.boolean().optional(),
+});
+
+export async function handleSchoolLogo(rawBody, authHeader) {
+  if (!SUPABASE_URL || !ANON_KEY) {
+    throw new Error('Server configuration error: SUPABASE_URL and ANON_KEY must be configured in environment');
   }
 
-  const { school_id, file, content_type, remove } = body;
-  if (!school_id) {
-    throw new Error('School ID is required');
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!serviceKey) {
+    throw new Error('Server configuration error: SUPABASE_SERVICE_ROLE_KEY is not configured');
   }
+
+  const parseResult = logoPostSchema.safeParse(rawBody);
+  if (!parseResult.success) {
+    throw new Error('Invalid logo request parameters');
+  }
+
+  const { school_id, file, content_type, remove } = parseResult.data;
 
   // 1. Verify caller is authorized
   const token = (authHeader || '').replace(/^Bearer\s+/i, '');
@@ -67,24 +81,21 @@ export async function handleSchoolLogo(body, authHeader) {
   // 2. Action: Remove logo
   if (remove) {
     try {
-      // Find and delete any existing files in this school's logo folder
       const { data: existingFiles } = await adminClient.storage.from('school-logos').list(school_id);
       if (existingFiles && existingFiles.length > 0) {
         const pathsToDelete = existingFiles.map((f) => `${school_id}/${f.name}`);
         await adminClient.storage.from('school-logos').remove(pathsToDelete);
       }
     } catch (cleanErr) {
-      console.warn('Notice cleaning old logos:', cleanErr.message);
+      console.warn('Notice cleaning old logos:', cleanErr);
     }
 
-    // Try to update database column if it exists
     try {
       await adminClient.from('schools').update({ logo_url: null }).eq('id', school_id);
     } catch (dbErr) {
-      console.warn('Note: logo_url column might not exist yet:', dbErr.message);
+      console.warn('Note: logo_url column update notice:', dbErr);
     }
 
-    // Audit log
     try {
       await adminClient.from('audit_logs').insert({
         school_id,
@@ -107,7 +118,6 @@ export async function handleSchoolLogo(body, authHeader) {
     throw new Error('No logo image data provided');
   }
 
-  // Extract base64 payload
   let base64Data = file;
   let detectedType = content_type;
 
@@ -131,11 +141,9 @@ export async function handleSchoolLogo(body, authHeader) {
     throw new Error('Image file is too large. Please upload an image under 3MB.');
   }
 
-  // File path with cache-busting timestamp
   const fileName = `logo-${Date.now()}.${ext}`;
   const filePath = `${school_id}/${fileName}`;
 
-  // Upload to Supabase Storage
   const { error: uploadErr } = await adminClient.storage
     .from('school-logos')
     .upload(filePath, buffer, {
@@ -145,14 +153,13 @@ export async function handleSchoolLogo(body, authHeader) {
 
   if (uploadErr) {
     console.error('Storage upload error:', uploadErr);
-    throw new Error(`Failed to upload logo: ${uploadErr.message}`);
+    throw new Error('Failed to upload logo image');
   }
 
-  // Generate public URL
   const { data: pubData } = adminClient.storage.from('school-logos').getPublicUrl(filePath);
   const publicUrl = pubData.publicUrl;
 
-  // Clean up previous logos for this school so only the latest remains
+  // Clean up previous logos for this school
   try {
     const { data: oldFiles } = await adminClient.storage.from('school-logos').list(school_id);
     if (oldFiles && oldFiles.length > 0) {
@@ -164,20 +171,15 @@ export async function handleSchoolLogo(body, authHeader) {
       }
     }
   } catch (cleanErr) {
-    console.warn('Notice cleaning previous logos:', cleanErr.message);
+    console.warn('Notice cleaning previous logos:', cleanErr);
   }
 
-  // Try updating the database column if present
   try {
-    const { error: dbErr } = await adminClient.from('schools').update({ logo_url: publicUrl }).eq('id', school_id);
-    if (dbErr) {
-      console.warn('Note: schools.logo_url column update notice:', dbErr.message);
-    }
+    await adminClient.from('schools').update({ logo_url: publicUrl }).eq('id', school_id);
   } catch (dbErr) {
-    console.warn('Note: schools.logo_url column update exception:', dbErr.message);
+    console.warn('Note: schools.logo_url column update notice:', dbErr);
   }
 
-  // Audit log
   try {
     await adminClient.from('audit_logs').insert({
       school_id,
@@ -197,8 +199,11 @@ export async function handleSchoolLogo(body, authHeader) {
 
 export async function handleGetSchoolLogo(schoolId) {
   if (!schoolId) return { url: null };
+  const uuidResult = z.string().uuid().safeParse(schoolId);
+  if (!uuidResult.success) return { url: null };
+
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!serviceKey) return { url: null };
+  if (!serviceKey || !SUPABASE_URL) return { url: null };
 
   const adminClient = createClient(SUPABASE_URL, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
@@ -208,7 +213,6 @@ export async function handleGetSchoolLogo(schoolId) {
     const { data: files, error } = await adminClient.storage.from('school-logos').list(schoolId);
     if (error || !files || files.length === 0) return { url: null };
 
-    // Get the latest logo file
     const latest = files
       .filter((f) => f.name && !f.name.startsWith('.'))
       .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))[0];
@@ -231,9 +235,10 @@ export default async function handler(req, res) {
       res.setHeader('Content-Type', 'application/json');
       return res.end(JSON.stringify(result));
     } catch (err) {
+      console.error('Get school logo error:', err);
       res.statusCode = 400;
       res.setHeader('Content-Type', 'application/json');
-      return res.end(JSON.stringify({ error: err.message || 'Failed to get school logo' }));
+      return res.end(JSON.stringify({ error: 'Failed to get school logo' }));
     }
   }
 
@@ -245,6 +250,9 @@ export default async function handler(req, res) {
   let body = '';
   req.on('data', (chunk) => {
     body += chunk;
+    if (body.length > 5 * 1024 * 1024) {
+      req.destroy();
+    }
   });
   req.on('end', async () => {
     try {
@@ -254,6 +262,7 @@ export default async function handler(req, res) {
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify(result));
     } catch (err) {
+      console.error('School logo handler error:', err);
       res.statusCode = 400;
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({ error: err.message || 'Failed to update school logo' }));
