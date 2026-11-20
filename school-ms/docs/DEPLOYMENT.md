@@ -73,6 +73,11 @@ The DB tests run inside transactions that are rolled back. To run them against a
 TEST_DB_URL='postgresql://postgres:<password>@db.<ref>.supabase.co:5432/postgres' npm run test:db
 ```
 
+## 8. React Router v7 Upgrade Deferral Notice (Security Advisory Remediation M-2)
+The upgrade from `react-router-dom` v6 to v7 is deferred to a future maintenance window due to breaking changes in data routers, framework route definitions, and splat route resolution.
+- All dynamic redirect and navigation destinations across the client SPA are strictly sanitized using `safeRedirect(target)` (`src/pages/auth/Login.tsx`), ensuring target paths cannot lead to open redirects, schema-relative protocol escapes (`//`), backslashes, or control characters.
+- Internal navigation routes (`/admin/schools/${id}`, `/school/students/${id}`) are strictly parameterized with validated UUIDs.
+
 ## Backups and operations
 - Turn on Point-in-Time Recovery or daily backups (Supabase plan dependent).
 - `audit_logs` grows over time. Archive old rows with a scheduled job if needed. There is no automatic deletion.
