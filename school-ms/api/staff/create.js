@@ -14,7 +14,7 @@ const createStaffSchema = z.object({
     .regex(/[A-Za-z]/, 'Password must contain at least one letter')
     .regex(/[0-9]/, 'Password must contain at least one number'),
   full_name: z.string().trim().min(2, 'Full name must be at least 2 characters').max(120),
-  role: z.enum(['headmaster', 'teacher'], { errorMap: () => ({ message: 'Role must be headmaster or teacher' }) }),
+  role: z.enum(['headmaster', 'teacher'], { error: 'Role must be headmaster or teacher' }),
   school_id: z.string().uuid('Invalid school ID format'),
 });
 
