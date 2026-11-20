@@ -306,6 +306,27 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   Object.assign(process.env, env);
 
+  const supabaseUrl = (
+    env.VITE_SUPABASE_URL ||
+    env.SUPABASE_URL ||
+    env.NEXT_PUBLIC_SUPABASE_URL ||
+    process.env.VITE_SUPABASE_URL ||
+    process.env.SUPABASE_URL ||
+    ''
+  ).trim();
+
+  const supabaseAnonKey = (
+    env.VITE_SUPABASE_ANON_KEY ||
+    env.SUPABASE_ANON_KEY ||
+    env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+    env.SUPABASE_PUBLISHABLE_KEY ||
+    env.SUPABASE_KEY ||
+    process.env.VITE_SUPABASE_ANON_KEY ||
+    process.env.SUPABASE_ANON_KEY ||
+    ''
+  ).trim();
+
   const isLocalStack = env.VITE_LOCAL_STACK === 'true';
 
   let serverHost: string | undefined = undefined;
@@ -332,6 +353,11 @@ export default defineConfig(({ mode }) => {
   const proxy = isLocalStack ? localProxy : {};
 
   return {
+    define: {
+      'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(supabaseUrl),
+      'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(supabaseAnonKey),
+    },
+    envPrefix: ['VITE_', 'SUPABASE_'],
     plugins: [react(), adminApiPlugin()],
     server: { host: serverHost, port: 5173, allowedHosts, proxy },
     preview: { host: serverHost, port: 5173, allowedHosts, proxy },
