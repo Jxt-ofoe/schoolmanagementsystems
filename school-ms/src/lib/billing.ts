@@ -3,7 +3,7 @@
  * Database is source of truth; this mirrors it for UI calculations, breakdown, and display.
  */
 
-export const PRICE_PER_STUDENT_PER_TERM = 3; // Default GHS 3 per student per term
+export const PRICE_PER_STUDENT_PER_TERM = 10; // Default GHS 10 per student per term / semester
 export const DEFAULT_SNAPSHOT_WEEK = 2; // Week 2 of term for student snapshot
 export const TERM_GRACE_PERIOD_DAYS = 30; // 30-day grace period at term start
 export const INVOICE_PAYMENT_DUE_DAYS = 7; // Invoices due 7 days after issue

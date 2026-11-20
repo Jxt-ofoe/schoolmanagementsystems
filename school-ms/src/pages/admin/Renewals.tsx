@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { unwrap, usePlatformSettings } from '../../lib/queries';
 import { formatDate, formatMoney } from '../../lib/format';
+import { PRICE_PER_STUDENT_PER_TERM } from '../../lib/billing';
 import { downloadCsv } from '../../lib/csv';
 import { useToast } from '../../lib/toast';
 import { friendlyError } from '../../lib/errors';
@@ -93,7 +94,7 @@ export default function RenewalsPage() {
     <>
       <PageHeader
         title="Semester Renewals & Billing"
-        subtitle={`Platform pricing model: ${formatMoney(settings.data?.price_per_student ?? 2.0)} per registered student per semester.`}
+        subtitle={`Platform pricing model: ${formatMoney(settings.data?.price_per_student ?? PRICE_PER_STUDENT_PER_TERM)} per registered student per semester.`}
         actions={
           <Button
             variant="secondary"

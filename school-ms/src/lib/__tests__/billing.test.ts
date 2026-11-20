@@ -22,10 +22,10 @@ describe('billing: unique registered students × configured price', () => {
     ];
     expect(billableCount(regs)).toBe(3);
   });
-  it('uses the configured price (default GHS 3)', () => {
-    expect(PRICE_PER_STUDENT_PER_TERM).toBe(3);
-    expect(amountDue(10, 3)).toBe(30); // School A with 10 students: 10 * 3 = 30
-    expect(amountDue(120, 3)).toBe(360); // 120 students × GHS 3 = GHS 360
+  it('uses the configured price (default GHS 10)', () => {
+    expect(PRICE_PER_STUDENT_PER_TERM).toBe(10);
+    expect(amountDue(10, 10)).toBe(100); // School A with 10 students: 10 * 10 = 100
+    expect(amountDue(120, 10)).toBe(1200); // 120 students × GHS 10 = GHS 1200
     expect(amountDue(150, 2)).toBe(300);
     expect(amountDue(150, 2.5)).toBe(375);
     expect(amountDue(3, 0.1)).toBe(0.3); // no float drift

@@ -6,6 +6,7 @@ import { unwrap } from '../../lib/queries';
 import { createStaffSchema, fieldErrors } from '../../lib/validation';
 import { friendlyError } from '../../lib/errors';
 import { formatDate, formatMoney, humanize } from '../../lib/format';
+import { PRICE_PER_STUDENT_PER_TERM } from '../../lib/billing';
 import { useToast } from '../../lib/toast';
 import { invokeInvite } from '../school/Teachers';
 import type { BillingOverview } from '../../lib/types';
@@ -147,7 +148,7 @@ export default function AdminSchoolDetail() {
               <div className="kv">
                 <span>Pricing Rate:</span>
                 <strong style={{ color: 'var(--primary)', fontSize: '1.05rem' }}>
-                  {formatMoney(billingConfig.data?.price_per_student ?? 3.0)} / student / term
+                  {formatMoney(billingConfig.data?.price_per_student ?? PRICE_PER_STUDENT_PER_TERM)} / student / term
                 </strong>
               </div>
               <div className="kv">
@@ -374,7 +375,7 @@ function SchoolBillingConfigModal({
   const qc = useQueryClient();
   const toast = useToast();
 
-  const [price, setPrice] = useState(String(initialConfig?.price_per_student ?? 3.0));
+  const [price, setPrice] = useState(String(initialConfig?.price_per_student ?? PRICE_PER_STUDENT_PER_TERM));
   const [startDate, setStartDate] = useState(initialConfig?.billing_start_date ?? new Date().toISOString().slice(0, 10));
   const [nextDate, setNextDate] = useState(initialConfig?.next_billing_date ?? '');
   const [dueDays, setDueDays] = useState(String(initialConfig?.due_days ?? 14));

@@ -58,9 +58,9 @@ WHERE id NOT IN (SELECT user_id FROM public.platform_admins);
 
 -- 4. Reset default platform settings
 INSERT INTO public.platform_settings (id, price_per_student, currency, billing_due_days, void_grace_days, updated_at)
-VALUES (true, 3.00, 'GHS', 7, 14, now())
+VALUES (true, 10.00, 'GHS', 7, 14, now())
 ON CONFLICT (id) DO UPDATE
-SET price_per_student = 3.00,
+SET price_per_student = 10.00,
     currency = 'GHS',
     billing_due_days = 7,
     void_grace_days = 14,
