@@ -16,7 +16,27 @@ const SUPABASE_URL = process.env.VITE_SUPABASE_URL || env.VITE_SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!SUPABASE_URL || !SERVICE_KEY) {
-  console.error('Error: Supabase URL and Service Role Key required.');
+  console.error('Missing VITE_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY (set in .env.local)');
+  process.exit(1);
+}
+
+console.log('Target SUPABASE_URL:', SUPABASE_URL);
+
+// Guard: refuse to run unless --confirm <project-ref> is passed AND ALLOW_DESTRUCTIVE=1 is set
+const args = process.argv.slice(2);
+const confirmIdx = args.indexOf('--confirm');
+const confirmRef = confirmIdx !== -1 ? args[confirmIdx + 1] : null;
+
+let expectedRef = '';
+try {
+  expectedRef = new URL(SUPABASE_URL).hostname.split('.')[0];
+} catch {
+  expectedRef = 'unknown';
+}
+
+if (process.env.ALLOW_DESTRUCTIVE !== '1' || !confirmRef || confirmRef !== expectedRef) {
+  console.error('Refusing to run destructive script:');
+  console.error(`Requires ALLOW_DESTRUCTIVE=1 environment variable AND --confirm ${expectedRef}`);
   process.exit(1);
 }
 

@@ -29,6 +29,23 @@ if (!TARGET_URL || !TARGET_KEY) {
   process.exit(1);
 }
 
+console.log('Target URL:', TARGET_URL);
+
+// Guard: refuse to run unless --confirm <project-ref> is passed AND ALLOW_DESTRUCTIVE=1 is set
+const confirmRef = getArg('confirm');
+let expectedRef = '';
+try {
+  expectedRef = new URL(TARGET_URL).hostname.split('.')[0];
+} catch {
+  expectedRef = 'unknown';
+}
+
+if (process.env.ALLOW_DESTRUCTIVE !== '1' || !confirmRef || confirmRef !== expectedRef) {
+  console.error('Refusing to run destructive restore script:');
+  console.error(`Requires ALLOW_DESTRUCTIVE=1 environment variable AND --confirm=${expectedRef}`);
+  process.exit(1);
+}
+
 // Determine backup folder
 const baseBackupsDir = path.resolve(__dirname, '../backups');
 let backupDir = getArg('backup');

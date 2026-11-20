@@ -10,10 +10,10 @@ if (fs.existsSync(envFile)) {
   }
 }
 
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL || 'https://simskpwdkbcudmgzjsib.supabase.co';
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-if (!SERVICE_KEY) {
-  console.error('SUPABASE_SERVICE_ROLE_KEY environment variable is not configured');
+if (!SUPABASE_URL || !SERVICE_KEY) {
+  console.error('Missing VITE_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY (set in .env.local)');
   process.exit(1);
 }
 
