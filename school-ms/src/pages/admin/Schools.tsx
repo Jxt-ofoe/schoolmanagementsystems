@@ -76,11 +76,12 @@ function CreateSchoolModal({ onClose, onCreated }: { onClose: () => void; onCrea
   const [createdInfo, setCreatedInfo] = useState<{ schoolId: string; schoolName: string; email: string; password: string; name: string } | null>(null);
 
   const generateRandomPassword = () => {
-    const chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$';
-    let res = '';
-    for (let i = 0; i < 12; i++) {
-      res += chars[Math.floor(Math.random() * chars.length)];
-    }
+    // Cryptographically secure temporary password (Finding M-5)
+    // TODO(M-5): Migrate to invite-user edge function once deployed
+    const pool = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%&*';
+    const array = new Uint32Array(12);
+    crypto.getRandomValues(array);
+    const res = Array.from(array, (x) => pool[x % pool.length]).join('');
     setHm((prev) => ({ ...prev, password: res }));
     setErrors((prev) => ({ ...prev, password: '' }));
   };
@@ -164,6 +165,9 @@ function CreateSchoolModal({ onClose, onCreated }: { onClose: () => void; onCrea
           <p style={{ margin: '6px 0' }}><strong>Password:</strong> <code style={{ fontSize: '1.05rem', background: '#e2e8f0', padding: '2px 8px', borderRadius: 4, fontWeight: 'bold' }}>{createdInfo.password}</code></p>
           <p style={{ margin: '6px 0' }}><strong>Portal URL:</strong> <a href="/login" target="_blank" rel="noreferrer">{window.location.origin}/login</a></p>
         </div>
+        <p className="muted small" style={{ marginBottom: 12 }}>
+          Temporary password generated — share once; the user should change this password at first login.
+        </p>
         <Button variant="secondary" onClick={() => {
           navigator.clipboard.writeText(copyText);
           toast('Headmaster credentials copied to clipboard!');
@@ -210,7 +214,7 @@ function CreateSchoolModal({ onClose, onCreated }: { onClose: () => void; onCrea
           </Button>
         </div>
         <p className="muted small" style={{ marginTop: 6 }}>
-          The headmaster can log in immediately with this email and password to set up classes, subjects, and teachers.
+          Temporary password generated — share once; the user should change this password at first login. The headmaster can log in immediately with this email and password to set up classes, subjects, and teachers.
         </p>
 
         <div style={{ marginTop: 16, padding: '12px 14px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
