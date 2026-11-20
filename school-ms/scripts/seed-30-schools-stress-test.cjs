@@ -1,6 +1,7 @@
 const { createClient } = require('@supabase/supabase-js');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 // 1. Load environment variables
 const envFile = path.resolve(__dirname, '../.env.local');
@@ -133,8 +134,9 @@ const schoolDefinitions = [
   { name: 'Tema Community Basic School', code: 'tema-community-basic', region: 'Greater Accra', city: 'Tema' },
 ];
 
-const HEADMASTER_PASSWORD = 'SchoolHead2026!';
-const TEACHER_PASSWORD = 'TeacherPass2026!';
+function generateSecurePassword() {
+  return crypto.randomBytes(9).toString('base64url') + '9z';
+}
 
 // Global in-memory cache of auth users to prevent redundant createUser / listUsers calls
 const existingUserCache = new Map();
@@ -411,7 +413,7 @@ async function main() {
     const headName = `${maleFirstNames[(sIdx * 3) % maleFirstNames.length]} ${lastNames[(sIdx * 5) % lastNames.length]}`;
     staffToCreate.push({
       email: headEmail,
-      password: HEADMASTER_PASSWORD,
+      password: generateSecurePassword(),
       fullName: headName,
       role: 'headmaster',
     });
@@ -425,7 +427,7 @@ async function main() {
       const tEmail = `teacher${tNumStr}@${sDef.code}.edu.gh`;
       staffToCreate.push({
         email: tEmail,
-        password: TEACHER_PASSWORD,
+        password: generateSecurePassword(),
         fullName: `${fName} ${lName}`,
         role: 'teacher',
         teacherIdx: t - 1,
@@ -608,14 +610,18 @@ async function main() {
     console.log(` [${sNum}/30] ${sDef.name} verified and ready in ${schoolDuration}s.`);
   }
 
-  // 10. Write Credentials to CSV
-  const csvPath = path.resolve(__dirname, 'credentials_export.csv');
-  let csvContent = 'School Name,School Code,Role,Full Name,Email,Password\n';
-  for (const c of credentialsLog) {
-    csvContent += `"${c.schoolName}","${c.schoolCode}","${c.role}","${c.name}","${c.email}","${c.password}"\n`;
+  // 10. Write Credentials to git-ignored .local-stack/seed-credentials.txt
+  const localStackDir = path.resolve(__dirname, '../.local-stack');
+  if (!fs.existsSync(localStackDir)) {
+    fs.mkdirSync(localStackDir, { recursive: true });
   }
-  fs.writeFileSync(csvPath, csvContent, 'utf8');
-  console.log(`\nExported all ${credentialsLog.length} staff credentials to: ${csvPath}`);
+  const credsPath = path.join(localStackDir, 'seed-credentials.txt');
+  let credsContent = 'School Name,School Code,Role,Full Name,Email,Password\n';
+  for (const c of credentialsLog) {
+    credsContent += `"${c.schoolName}","${c.schoolCode}","${c.role}","${c.name}","${c.email}","${c.password}"\n`;
+  }
+  fs.writeFileSync(credsPath, credsContent, 'utf8');
+  console.log(`\nExported all ${credentialsLog.length} staff credentials to git-ignored file: ${credsPath}`);
 
   const totalMinutes = ((Date.now() - startTime) / 60000).toFixed(2);
   console.log('\n================================================================');

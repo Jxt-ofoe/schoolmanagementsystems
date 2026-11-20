@@ -11,10 +11,16 @@ if (fs.existsSync(envFile)) {
 }
 
 async function testParts() {
+  const email = process.env.SEED_HM_EMAIL || 'headmaster@achimota-model.edu.gh';
+  const password = process.env.SEED_HM_PASSWORD;
+  if (!password) {
+    console.error('Missing SEED_HM_PASSWORD environment variable');
+    process.exit(1);
+  }
   const anon = createClient(env.VITE_SUPABASE_URL, env.VITE_SUPABASE_ANON_KEY);
   await anon.auth.signInWithPassword({
-    email: 'headmaster@achimota-model.edu.gh',
-    password: 'SchoolHead2026!',
+    email,
+    password,
   });
 
   const { data: ctx } = await anon.rpc('my_context');

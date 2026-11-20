@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 // Standard Ghana Curriculum Subjects (12 Subjects)
 const standardSubjects = [
@@ -108,8 +109,9 @@ const schoolDefinitions = [
   { name: 'Tema Community Basic School', code: 'tema-community-basic', region: 'Greater Accra', city: 'Tema' },
 ];
 
-const HEADMASTER_PASSWORD = 'SchoolHead2026!';
-const TEACHER_PASSWORD = 'TeacherPass2026!';
+function generateSecurePassword() {
+  return crypto.randomBytes(9).toString('base64url') + '9z';
+}
 
 function generateMarkdown() {
   let md = `# Multi-Tenant Load & Concurrency Stress Test Suite\n\n`;
@@ -126,8 +128,8 @@ function generateMarkdown() {
   md += `### Universal Credentials Summary\n\n`;
   md += `| Role | Email Format | Universal Password | Permissions |\n`;
   md += `| :--- | :--- | :--- | :--- |\n`;
-  md += `| **Headmaster** | \`headmaster@<school-code>.edu.gh\` | \`SchoolHead2026!\` | Full school administration, teacher onboarding, class/subject management, billing & invoice payments, reports |\n`;
-  md += `| **Teacher** | \`teacher<01-24>@<school-code>.edu.gh\` | \`TeacherPass2026!\` | Attendance recording, score entry for assigned classes & subjects, class roster viewing |\n\n`;
+  md += `| **Headmaster** | \`headmaster@<school-code>.edu.gh\` | Per-account random password | Full school administration, teacher onboarding, class/subject management, billing & invoice payments, reports |\n`;
+  md += `| **Teacher** | \`teacher<01-24>@<school-code>.edu.gh\` | Per-account random password | Attendance recording, score entry for assigned classes & subjects, class roster viewing |\n\n`;
 
   md += `## Directory of 30 Seeded Schools\n\n`;
   md += `| # | School Name | School Code | Region | Headmaster Login | Teachers | Students | Status |\n`;
@@ -145,7 +147,7 @@ function generateMarkdown() {
 
     md += `### ${sIdx + 1}. ${s.name} (\`${s.code}\`)\n\n`;
     md += `**Location:** ${s.city}, ${s.region} Region  \n`;
-    md += `**Headmaster:** ${headName} — Email: \`${headEmail}\` | Password: \`${HEADMASTER_PASSWORD}\`  \n`;
+    md += `**Headmaster:** ${headName} — Email: \`${headEmail}\` | Password: \`${generateSecurePassword()}\`  \n`;
     md += `**Students:** 2,000 | **Classes:** 20 | **Curriculum Subjects:** 12  \n\n`;
 
     md += `#### Teachers (24 Staff Members)\n\n`;
@@ -162,7 +164,7 @@ function generateMarkdown() {
       const subj1 = standardSubjects[(t - 1) % standardSubjects.length].name;
       const subj2 = standardSubjects[(t + 4) % standardSubjects.length].name;
 
-      md += `| T${tNumStr} | ${fName} ${lName} | \`${tEmail}\` | \`${TEACHER_PASSWORD}\` | ${homeroom} | ${subj1}, ${subj2} |\n`;
+      md += `| T${tNumStr} | ${fName} ${lName} | \`${tEmail}\` | \`${generateSecurePassword()}\` | ${homeroom} | ${subj1}, ${subj2} |\n`;
     }
 
     md += `\n---\n\n`;
@@ -186,8 +188,12 @@ function generateMarkdown() {
   return md;
 }
 
-const artifactDir = path.resolve('C:/Users/LENOVO/.gemini/antigravity/brain/620eff5a-2e35-44cd-bbdf-1ccd8f09c1b6');
+const localStackDir = path.resolve(__dirname, '../.local-stack');
+if (!fs.existsSync(localStackDir)) {
+  fs.mkdirSync(localStackDir, { recursive: true });
+}
+const credsPath = path.join(localStackDir, 'seed-credentials.txt');
 const mdContent = generateMarkdown();
-fs.writeFileSync(path.join(artifactDir, 'load_test_credentials.md'), mdContent, 'utf8');
-console.log('Successfully generated load_test_credentials.md artifact');
+fs.writeFileSync(credsPath, mdContent, 'utf8');
+console.log(`Successfully generated seed-credentials.txt in .local-stack/ at: ${credsPath}`);
 

@@ -22,7 +22,7 @@ async function testAsUser(email, label) {
   // Let's create session using admin.generateLink or sign in with password
   // Try signing in with common passwords or generate link
   let sessionToken = null;
-  const passwordsToTry = ['SchoolHead2026!', 'TeacherPass2026!', 'Password123!', 'admin123456', 'superadmin2026'];
+  const passwordsToTry = process.env.TEST_PASSWORD ? [process.env.TEST_PASSWORD] : [];
   for (const pwd of passwordsToTry) {
     const anon = createClient(env.VITE_SUPABASE_URL, env.VITE_SUPABASE_ANON_KEY);
     const { data, error } = await anon.auth.signInWithPassword({ email, password: pwd });
