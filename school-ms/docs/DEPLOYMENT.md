@@ -56,9 +56,18 @@ There are no default credentials. To create the platform owner:
    |---|---|
    | `VITE_SUPABASE_URL` | `https://<project-ref>.supabase.co` |
    | `VITE_SUPABASE_ANON_KEY` | the project's anon / publishable key |
+   | `PAYSTACK_SECRET_KEY` | Paystack secret key (Production) |
+   | `PAYMENT_SIMULATION` | `false` (Production); set `true` in local/preview environments to simulate payments without live keys |
 3. Deploy. Then put the final URL into Supabase *Site URL*, *Redirect URLs*, `SITE_URL` and `ALLOWED_ORIGINS`.
 
 `vercel.json` sends a Content-Security-Policy whose `connect-src` allows `https://*.supabase.co`. If you use a custom Supabase domain, add it there.
+
+### Payment Simulation Mode (Finding M-6)
+In non-production environments (local dev or staging/preview where `NODE_ENV !== 'production'`), payment simulation is available for testing recurring billing and checkout flows without active Paystack credentials.
+- To enable simulation, set `PAYMENT_SIMULATION=true` in your `.env.local` or preview environment settings.
+- When `PAYMENT_SIMULATION=true`, the API generates mock transaction URLs and records test verifications with explicit server-side warning logs.
+- If `PAYSTACK_SECRET_KEY` is missing and `PAYMENT_SIMULATION` is not `'true'`, payment endpoints reject requests with an explicit configuration error.
+- Simulation is strictly forbidden in production; any attempt to simulate payments when `NODE_ENV === 'production'` will throw a fatal error regardless of `PAYMENT_SIMULATION`.
 
 ## 6. Smoke test after deploying
 - Visiting `/school` while signed out redirects to `/login?next=…`.

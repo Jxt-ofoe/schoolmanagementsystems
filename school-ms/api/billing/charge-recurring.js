@@ -145,9 +145,14 @@ export async function handleChargeRecurring(rawBody, authHeader) {
         chargeSuccess = pstkRes.status && pstkRes.data?.status === 'success';
         chargeData = pstkRes.data;
       } else {
+        // Development mode simulation - only allowed when not in production and PAYMENT_SIMULATION is true (Finding M-6)
         if (process.env.NODE_ENV === 'production') {
           throw new Error('Live Paystack secret key required in production');
         }
+        if (process.env.PAYMENT_SIMULATION !== 'true') {
+          throw new Error('Server payment configuration error: PAYSTACK_SECRET_KEY is missing and PAYMENT_SIMULATION is not enabled');
+        }
+        console.warn('[SECURITY WARNING] PAYMENT_SIMULATION is enabled: simulating successful recurring charge in non-production environment');
         chargeSuccess = true;
         chargeData = {
           reference,
