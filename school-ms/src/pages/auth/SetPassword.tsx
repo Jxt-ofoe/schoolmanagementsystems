@@ -4,6 +4,7 @@ import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../lib/auth';
 import { Button, Input, Alert, Spinner } from '../../components/ui';
 import { passwordSchema } from '../../lib/validation';
+import { LiquidGlassBackground } from '../../components/LiquidGlassBackground';
 
 /**
  * Landing page for both invitation links and password-reset links.
@@ -32,10 +33,11 @@ export function SetPasswordPage() {
     navigate('/login?reset=done', { replace: true });
   }
 
-  if (loading) return <div className="auth-page"><div className="auth-card"><Spinner /></div></div>;
+  if (loading) return <div className="auth-page"><LiquidGlassBackground /><div className="auth-card"><Spinner /></div></div>;
 
   return (
     <div className="auth-page">
+      <LiquidGlassBackground />
       <form className="auth-card" onSubmit={submit} noValidate>
         <img src="/favicon.svg" width="44" height="44" alt="" />
         <h1>Set your password</h1>

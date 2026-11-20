@@ -6,6 +6,7 @@ import { Button, Input, Alert } from '../../components/ui';
 import { emailSchema } from '../../lib/validation';
 
 import { AuthFooter } from '../../components/auth-footer';
+import { LiquidGlassBackground } from '../../components/LiquidGlassBackground';
 
 /** Only same-site relative paths are allowed after login (prevents open redirects). */
 export function safeRedirect(next: string | null): string {
@@ -46,6 +47,7 @@ export function LoginPage() {
 
   return (
     <div className="auth-page">
+      <LiquidGlassBackground />
       <form className="auth-card" onSubmit={submit} noValidate>
         <img src="/favicon.svg" width="44" height="44" alt="" />
         <h1>Sign in</h1>

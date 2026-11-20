@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { Button, Input, Alert } from '../../components/ui';
 import { emailSchema } from '../../lib/validation';
+import { LiquidGlassBackground } from '../../components/LiquidGlassBackground';
 
 export function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
@@ -27,6 +28,7 @@ export function ForgotPasswordPage() {
 
   return (
     <div className="auth-page">
+      <LiquidGlassBackground />
       <form className="auth-card" onSubmit={submit} noValidate>
         <img src="/favicon.svg" width="44" height="44" alt="" />
         <h1>Reset your password</h1>

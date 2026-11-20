@@ -7,6 +7,7 @@ import { supabase } from '../lib/supabase';
 import { isLocalStack } from '../lib/supabase';
 import { humanize, formatDate, formatMoney, todayISO } from '../lib/format';
 import type { BillingOverview } from '../lib/types';
+import { LiquidGlassBackground } from './LiquidGlassBackground';
 
 interface NavItem { to: string; label: string; icon: ReactNode; end?: boolean }
 
@@ -235,17 +236,7 @@ export function Layout() {
 
   return (
     <div className={`app-shell ${isAdmin ? 'admin-liquid-glass' : ''}`}>
-      {isAdmin && (
-        <div className="liquid-glass-canvas" aria-hidden="true">
-          <div className="liquid-orb orb-1" />
-          <div className="liquid-orb orb-2" />
-          <div className="liquid-orb orb-3" />
-          <div className="liquid-orb orb-4" />
-          <div className="liquid-orb orb-5" />
-          <div className="liquid-glass-frost" />
-          <div className="liquid-glass-glare" />
-        </div>
-      )}
+      <LiquidGlassBackground />
       <a href="#main" className="skip-link">Skip to content</a>
       <header className="topbar">
         <button className="menu-btn" aria-label="Open menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
