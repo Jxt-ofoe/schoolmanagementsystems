@@ -162,6 +162,53 @@ export async function handleSendSMS(rawBody, authHeader) {
     }
   }
 
+  // Recipient validation and caps (Finding M-4)
+  if (filter_type === 'custom') {
+    if (recipients.length > 50) {
+      throw new Error('Custom SMS broadcasts are limited to a maximum of 50 recipients per request.');
+    }
+  } else {
+    // When filter_type !== 'custom', ensure all student_ids belong to the caller's school_id
+    const studentIds = Array.from(new Set(recipients.map((r) => r.student_id).filter(Boolean)));
+    if (studentIds.length > 0) {
+      const { data: validStudents, error: studentErr } = await adminClient
+        .from('students')
+        .select('id')
+        .eq('school_id', school_id)
+        .in('id', studentIds);
+
+      if (studentErr) {
+        throw new Error('Failed to validate student recipients for this school');
+      }
+
+      const validStudentIdSet = new Set((validStudents || []).map((s) => s.id));
+      const hasMismatch = studentIds.some((id) => !validStudentIdSet.has(id));
+      if (hasMismatch) {
+        throw new Error('Invalid recipient: one or more students do not belong to this school');
+      }
+    }
+  }
+
+  // Daily platform-spend guard (Finding M-4)
+  // Query sum of estimated_cost from sms_logs created today (UTC midnight).
+  // Note [Finding M-4]: A durable per-school prepaid SMS balance table (school_sms_credits)
+  // is needed before opening SMS to self-serve topups. This global guard prevents unexpected
+  // carrier spend on shared platform credentials.
+  const todayStart = new Date();
+  todayStart.setUTCHours(0, 0, 0, 0);
+  const { data: dailyLogs, error: dailyLogsErr } = await adminClient
+    .from('sms_logs')
+    .select('estimated_cost')
+    .gte('created_at', todayStart.toISOString());
+
+  if (!dailyLogsErr && Array.isArray(dailyLogs)) {
+    const dailySpend = dailyLogs.reduce((acc, row) => acc + Number(row.estimated_cost || 0), 0);
+    const dailyCap = Number(process.env.PLATFORM_SMS_DAILY_CAP_GHS || 50);
+    if (dailySpend >= dailyCap) {
+      throw new Error('Daily platform SMS limit reached. Contact support.');
+    }
+  }
+
   // 3. Load school communication settings & SaaS platform shared credentials
   const { data: settings } = await adminClient
     .from('communication_settings')
