@@ -28,6 +28,29 @@ export default function SchoolDashboard() {
     queryKey: ['school_dashboard_fees', schoolId, currentSemesterId],
     enabled: !!schoolId && !!currentSemesterId,
     queryFn: async () => {
+      // 1. Fast path: server-side aggregate RPC
+      try {
+        const { data: summary, error: rpcErr } = await supabase.rpc('school_dashboard_fees_summary', {
+          p_school_id: schoolId,
+          p_semester_id: currentSemesterId,
+        });
+        if (!rpcErr && summary) {
+          return summary as {
+            structuresCount: number;
+            structures: { id: string; name: string; amount: number }[];
+            totalCharged: number;
+            totalDiscounted: number;
+            netCharged: number;
+            totalPaid: number;
+            balance: number;
+            hasCharges: boolean;
+          };
+        }
+      } catch {
+        // Fallback to table queries if RPC not deployed yet
+      }
+
+      // 2. Client-side fallback
       const { data: structures } = await supabase
         .from('fee_structures')
         .select('id, name, amount')
