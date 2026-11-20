@@ -5,7 +5,14 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 BIN="${LOCAL_BIN:-$HOME/.local/bin}"
 LOGS="$ROOT/.local-stack/logs"; mkdir -p "$LOGS"
-export LOCAL_JWT_SECRET="${LOCAL_JWT_SECRET:-local-dev-jwt-secret-change-me-at-least-32-chars}"
+if [ -z "${LOCAL_JWT_SECRET:-}" ] && [ -f "$ROOT/.local-stack/jwt-secret" ]; then
+  LOCAL_JWT_SECRET="$(cat "$ROOT/.local-stack/jwt-secret")"
+fi
+if [ -z "${LOCAL_JWT_SECRET:-}" ] || [ "${LOCAL_JWT_SECRET:-}" = "local-dev-jwt-secret-change-me-at-least-32-chars" ]; then
+  echo "ERROR: LOCAL_JWT_SECRET is unset or using forbidden default string. Run scripts/local-stack/setup.sh" >&2
+  exit 1
+fi
+export LOCAL_JWT_SECRET
 eval "$(node "$ROOT/scripts/local-stack/keys.mjs")"
 PUBLIC_URL="${PUBLIC_URL:-${E2B_SANDBOX_ID:+https://5173-$E2B_SANDBOX_ID.e2b.app}}"
 PUBLIC_URL="${PUBLIC_URL:-http://localhost:5173}"

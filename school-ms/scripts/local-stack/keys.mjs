@@ -1,6 +1,19 @@
 // LOCAL ONLY: derive anon/service_role JWTs from the local JWT secret.
 import { createHmac } from 'node:crypto';
-const secret = process.env.LOCAL_JWT_SECRET ?? 'local-dev-jwt-secret-change-me-at-least-32-chars';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+const jwtSecretFile = fileURLToPath(new URL('../../.local-stack/jwt-secret', import.meta.url));
+let secret = process.env.LOCAL_JWT_SECRET;
+if (!secret && fs.existsSync(jwtSecretFile)) {
+  secret = fs.readFileSync(jwtSecretFile, 'utf8').trim();
+}
+
+if (!secret || secret === 'local-dev-jwt-secret-change-me-at-least-32-chars') {
+  console.error('ERROR: LOCAL_JWT_SECRET is unset or using insecure default. Run scripts/local-stack/setup.sh or set LOCAL_JWT_SECRET.');
+  process.exit(1);
+}
+
 const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
 const sign = (payload) => {
   const head = b64({ alg: 'HS256', typ: 'JWT' });

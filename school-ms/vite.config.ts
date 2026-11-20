@@ -284,7 +284,18 @@ function adminApiPlugin() {
 
 // Local stack only: proxy Supabase-style paths to locally running services.
 const localProxy = {
-  '/auth/v1': { target: 'http://127.0.0.1:9999', changeOrigin: true, rewrite: (p: string) => p.replace(/^\/auth\/v1/, '') },
+  '/auth/v1': {
+    target: 'http://127.0.0.1:9999',
+    changeOrigin: true,
+    rewrite: (p: string) => p.replace(/^\/auth\/v1/, ''),
+    bypass: (req: any, res: any) => {
+      if (req.url && req.url.startsWith('/auth/v1/admin')) {
+        res.statusCode = 403;
+        res.end('Access to admin auth via dev proxy is forbidden');
+        return true;
+      }
+    },
+  },
   '/rest/v1': { target: 'http://127.0.0.1:3000', changeOrigin: true, rewrite: (p: string) => p.replace(/^\/rest\/v1/, '') },
   '/functions/v1': { target: 'http://127.0.0.1:8000', changeOrigin: true },
   '/_dev/mail': { target: 'http://127.0.0.1:8025', changeOrigin: true, rewrite: (p: string) => p.replace(/^\/_dev\/mail/, '') || '/' },
@@ -294,10 +305,35 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   Object.assign(process.env, env);
 
+  const isLocalStack = env.VITE_LOCAL_STACK === 'true';
+
+  let serverHost: string | undefined = undefined;
+  if (isLocalStack) {
+    serverHost = env.HOST || '127.0.0.1';
+    if (serverHost === '0.0.0.0' || serverHost === '::') {
+      if (env.LOCAL_STACK_ALLOW_PUBLIC !== '1') {
+        throw new Error(
+          'Refusing to bind local stack to public host 0.0.0.0 without LOCAL_STACK_ALLOW_PUBLIC=1'
+        );
+      }
+      console.warn(
+        '⚠️ WARNING: LOCAL STACK BOUND TO PUBLIC INTERFACE. Local dev services and proxies are exposed!'
+      );
+    }
+  } else {
+    serverHost = env.HOST || undefined;
+  }
+
+  const allowedHosts = env.ALLOWED_HOSTS
+    ? env.ALLOWED_HOSTS.split(',').map((h) => h.trim())
+    : ['localhost', '127.0.0.1'];
+
+  const proxy = isLocalStack ? localProxy : {};
+
   return {
     plugins: [react(), adminApiPlugin()],
-    server: { host: '0.0.0.0', port: 5173, allowedHosts: true, proxy: localProxy },
-    preview: { host: '0.0.0.0', port: 5173, allowedHosts: true, proxy: localProxy },
+    server: { host: serverHost, port: 5173, allowedHosts, proxy },
+    preview: { host: serverHost, port: 5173, allowedHosts, proxy },
     build: { sourcemap: false, chunkSizeWarningLimit: 900 },
   };
 });

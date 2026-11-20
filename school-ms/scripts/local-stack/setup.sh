@@ -44,6 +44,13 @@ if ! "$BIN/deno" --version 2>/dev/null | grep -q "${DENO_VERSION#v}"; then
   unzip -oq "$tmp/deno.zip" -d "$BIN"; rm -rf "$tmp"
 fi
 
+echo "== local jwt secret"
+mkdir -p "$ROOT/.local-stack"
+if [ ! -f "$ROOT/.local-stack/jwt-secret" ]; then
+  openssl rand -hex 32 > "$ROOT/.local-stack/jwt-secret"
+  chmod 600 "$ROOT/.local-stack/jwt-secret"
+fi
+
 echo "== database roles (anon/authenticated/service_role/authenticator/supabase_auth_admin)"
 cat "$ROOT/scripts/local-stack/bootstrap-roles.sql" | psql "$PGURL" -v ON_ERROR_STOP=1 -q
 
