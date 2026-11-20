@@ -151,7 +151,8 @@ export default async function handler(req, res) {
       res.status(200).json(result);
     } catch (err) {
       console.error('Send reminder error:', err);
-      res.status(400).json({ error: err.message || 'Failed to dispatch reminder' });
+      const isClientErr = err.message?.startsWith('Unauthorized') || err.message?.startsWith('Invalid input') || err.message?.startsWith('School not found');
+      res.status(isClientErr ? 400 : 500).json({ error: isClientErr ? err.message : 'Internal server error' });
     }
   } else {
     res.status(405).json({ error: 'Method not allowed' });

@@ -31,8 +31,9 @@ function adminApiPlugin() {
       try {
         const url = new URL(req.url, 'http://localhost');
         const schoolId = url.searchParams.get('school_id');
+        const authHeader = req.headers['authorization'];
         const { handleGetSchoolLogo } = await import('./api/school/logo.js');
-        const result = await handleGetSchoolLogo(schoolId);
+        const result = await handleGetSchoolLogo(schoolId, authHeader);
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify(result));
       } catch (err: any) {

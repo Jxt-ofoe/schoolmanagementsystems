@@ -274,8 +274,9 @@ export default async function handler(req, res) {
     return res.end(JSON.stringify(result));
   } catch (err) {
     console.error('Report view error:', err);
-    res.statusCode = 400;
+    const isClientErr = err.message?.startsWith('Invalid or missing') || err.message?.includes('expired') || err.message?.includes('exist');
+    res.statusCode = isClientErr ? 400 : 500;
     res.setHeader('Content-Type', 'application/json');
-    return res.end(JSON.stringify({ error: err.message || 'Failed to load report card' }));
+    return res.end(JSON.stringify({ error: isClientErr ? err.message : 'Internal server error' }));
   }
 }

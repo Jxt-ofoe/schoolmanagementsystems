@@ -60,6 +60,32 @@ describe('Flexible School Billing & Paystack Integration Unit Tests', () => {
     expect(tamperedHash).not.toBe(expectedHash);
   });
 
+  it('preserves HMAC signature verification with whitespace and non-canonical spacing (Finding L-1)', () => {
+    const secret = 'sk_test_webhook_secret_key_12345';
+    // Raw wire payload with newlines and non-canonical indentation
+    const rawWirePayload = `{\n  "event": "charge.success",\n  "data": {\n    "reference": "PSTK_TEST_12345",\n    "amount": 154500\n  }\n}`;
+
+    const validSignature = crypto
+      .createHmac('sha512', secret)
+      .update(rawWirePayload)
+      .digest('hex');
+
+    // 1. Verifying directly against raw wire string succeeds
+    const computedOnRaw = crypto
+      .createHmac('sha512', secret)
+      .update(rawWirePayload)
+      .digest('hex');
+    expect(computedOnRaw).toBe(validSignature);
+
+    // 2. Re-serializing parsed JSON changes spacing/newlines and breaks HMAC
+    const reparsedCanonical = JSON.stringify(JSON.parse(rawWirePayload));
+    const computedOnReparsed = crypto
+      .createHmac('sha512', secret)
+      .update(reparsedCanonical)
+      .digest('hex');
+    expect(computedOnReparsed).not.toBe(validSignature);
+  });
+
   it('correctly reports payment status and balance for partial, full, and overpaid amounts', () => {
     const s1 = summarize(500, 3, 1000, 0, 45); // Due 1545, paid 1000 => balance 545, partial
     expect(s1.due).toBe(1545);

@@ -81,13 +81,17 @@ export async function handleCreateStaff(rawBody, authHeader) {
     }
   }
 
-  // 3. Search for existing user safely
-  const { data: listData } = await adminClient.auth.admin.listUsers({ page: 1, perPage: 1000 });
-  const existingUser = listData?.users?.find((u) => u.email?.toLowerCase() === normEmail);
-  let userId;
+  // 3. Search for existing user safely via direct indexed lookup (Finding L-7)
+  const { data: existingProfile } = await adminClient
+    .from('profiles')
+    .select('id, email')
+    .ilike('email', normEmail)
+    .maybeSingle();
+
+  let userId = existingProfile?.id;
   let outcome = 'created';
 
-  if (!existingUser) {
+  if (!userId) {
     // Create new user account with initial password
     const { data: created, error: createErr } = await adminClient.auth.admin.createUser({
       email: normEmail,
@@ -95,10 +99,27 @@ export async function handleCreateStaff(rawBody, authHeader) {
       email_confirm: true,
       user_metadata: { full_name: normName },
     });
-    if (createErr) throw createErr;
-    userId = created.user.id;
+
+    if (createErr) {
+      if (createErr.message?.toLowerCase().includes('already') || createErr.status === 422) {
+        const { data: retryProfile } = await adminClient
+          .from('profiles')
+          .select('id, email')
+          .ilike('email', normEmail)
+          .maybeSingle();
+        if (retryProfile?.id) {
+          userId = retryProfile.id;
+          outcome = 'added_existing';
+        } else {
+          throw createErr;
+        }
+      } else {
+        throw createErr;
+      }
+    } else {
+      userId = created.user.id;
+    }
   } else {
-    userId = existingUser.id;
     outcome = 'added_existing';
 
     // Security Check: Target user cannot be a platform administrator
@@ -186,9 +207,10 @@ export default async function handler(req, res) {
       res.end(JSON.stringify(result));
     } catch (err) {
       console.error('Create staff error:', err);
-      res.statusCode = 400;
+      const isClientErr = err.message?.startsWith('Unauthorized') || err.message?.startsWith('Invalid input') || err.message?.startsWith('A valid') || err.message?.startsWith('Only Platform') || err.message?.startsWith('Platform Super Admin') || err.message?.startsWith('Cannot add');
+      res.statusCode = isClientErr ? 400 : 500;
       res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({ error: err.message || 'Failed to create staff account' }));
+      res.end(JSON.stringify({ error: isClientErr ? err.message : 'Internal server error' }));
     }
   });
 }

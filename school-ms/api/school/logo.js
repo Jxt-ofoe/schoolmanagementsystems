@@ -197,17 +197,48 @@ export async function handleSchoolLogo(rawBody, authHeader) {
   return { success: true, url: publicUrl };
 }
 
-export async function handleGetSchoolLogo(schoolId) {
+export async function handleGetSchoolLogo(schoolId, authHeader) {
   if (!schoolId) return { url: null };
   const uuidResult = z.string().uuid().safeParse(schoolId);
   if (!uuidResult.success) return { url: null };
 
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!serviceKey || !SUPABASE_URL) return { url: null };
+  if (!serviceKey || !SUPABASE_URL || !ANON_KEY) return { url: null };
+
+  // Finding L-5: require Bearer token + role check on GET
+  const token = (authHeader || '').replace(/^Bearer\s+/i, '');
+  if (!token) {
+    throw new Error('Unauthorized: missing token');
+  }
+
+  const callerClient = createClient(SUPABASE_URL, ANON_KEY, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+    auth: { persistSession: false },
+  });
+  const { data: userData, error: userErr } = await callerClient.auth.getUser(token);
+  if (userErr || !userData?.user) {
+    throw new Error('Unauthorized: invalid session');
+  }
+  const callerId = userData.user.id;
 
   const adminClient = createClient(SUPABASE_URL, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+
+  const { data: sa } = await adminClient.from('platform_admins').select('user_id').eq('user_id', callerId).maybeSingle();
+  if (!sa) {
+    const { data: m } = await adminClient
+      .from('school_memberships')
+      .select('role, status')
+      .eq('school_id', schoolId)
+      .eq('user_id', callerId)
+      .eq('status', 'active')
+      .maybeSingle();
+
+    if (!m) {
+      throw new Error('Unauthorized: caller is not an active member of this school');
+    }
+  }
 
   try {
     const { data: files, error } = await adminClient.storage.from('school-logos').list(schoolId);
@@ -231,14 +262,16 @@ export default async function handler(req, res) {
     try {
       const url = new URL(req.url, 'http://localhost');
       const schoolId = url.searchParams.get('school_id');
-      const result = await handleGetSchoolLogo(schoolId);
+      const authHeader = req.headers['authorization'];
+      const result = await handleGetSchoolLogo(schoolId, authHeader);
       res.setHeader('Content-Type', 'application/json');
       return res.end(JSON.stringify(result));
     } catch (err) {
       console.error('Get school logo error:', err);
-      res.statusCode = 400;
+      const isClientErr = err.message?.startsWith('Unauthorized');
+      res.statusCode = isClientErr ? 401 : 500;
       res.setHeader('Content-Type', 'application/json');
-      return res.end(JSON.stringify({ error: 'Failed to get school logo' }));
+      return res.end(JSON.stringify({ error: isClientErr ? err.message : 'Internal server error' }));
     }
   }
 
@@ -263,9 +296,10 @@ export default async function handler(req, res) {
       res.end(JSON.stringify(result));
     } catch (err) {
       console.error('School logo handler error:', err);
-      res.statusCode = 400;
+      const isClientErr = err.message?.startsWith('Unauthorized') || err.message?.startsWith('Invalid') || err.message?.startsWith('School not found') || err.message?.startsWith('Only PNG');
+      res.statusCode = isClientErr ? 400 : 500;
       res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({ error: err.message || 'Failed to update school logo' }));
+      res.end(JSON.stringify({ error: isClientErr ? err.message : 'Internal server error' }));
     }
   });
 }

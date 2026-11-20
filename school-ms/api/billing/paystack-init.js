@@ -31,6 +31,33 @@ export async function handlePaystackInit(rawBody, authHeader) {
 
   const { school_id, billing_id, email, callback_url } = parseResult.data;
 
+  // Validate callback_url against allowlist (Finding L-4)
+  if (callback_url) {
+    const rawAllowed = `${process.env.APP_BASE_URL || ''},${process.env.ALLOWED_ORIGINS || ''},${process.env.SITE_URL || ''},${process.env.VITE_SITE_URL || ''}`;
+    const allowedOrigins = rawAllowed
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((u) => {
+        try {
+          return new URL(u).origin;
+        } catch {
+          return u;
+        }
+      });
+    if (process.env.NODE_ENV !== 'production') {
+      allowedOrigins.push('http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:3000', 'http://127.0.0.1:3000');
+    }
+    try {
+      const parsedCb = new URL(callback_url);
+      if (!allowedOrigins.includes(parsedCb.origin)) {
+        throw new Error('Callback URL origin not permitted');
+      }
+    } catch (cbErr) {
+      throw new Error(`Invalid input: callback URL origin not allowed (${cbErr.message})`);
+    }
+  }
+
   // 2. Verify caller authentication
   const token = (authHeader || '').replace(/^Bearer\s+/i, '');
   if (!token) {
@@ -351,7 +378,8 @@ export default async function handler(req, res) {
       res.status(200).json(result);
     } catch (err) {
       console.error('Paystack init error:', err);
-      res.status(400).json({ error: err.message || 'Failed to initialize Paystack checkout' });
+      const isClientErr = err.message?.startsWith('Unauthorized') || err.message?.startsWith('Invalid input') || err.message?.startsWith('School not found');
+      res.status(isClientErr ? 400 : 500).json({ error: isClientErr ? err.message : 'Internal server error' });
     }
   } else {
     res.status(405).json({ error: 'Method not allowed' });

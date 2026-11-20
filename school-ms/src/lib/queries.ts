@@ -84,10 +84,14 @@ export function useSchoolDetails(schoolId: string | undefined) {
         supabase.from('schools').select('*').eq('id', schoolId!).single()
       );
 
-      // If logo_url is not present or null on the row, check if an uploaded logo exists via API
+      // If logo_url is not present or null on the row, check if an uploaded logo exists via API (Finding L-5: auth required)
       if (!data.logo_url) {
         try {
-          const res = await fetch(`/api/school/logo?school_id=${schoolId}`);
+          const { data: sessionData } = await supabase.auth.getSession();
+          const token = sessionData?.session?.access_token;
+          const res = await fetch(`/api/school/logo?school_id=${schoolId}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          });
           if (res.ok) {
             const json = await res.json();
             if (json?.url) {
