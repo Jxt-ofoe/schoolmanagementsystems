@@ -7,6 +7,40 @@ const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const shareIdSchema = z.string().uuid('Invalid report card share link');
 
+// In-memory per-IP token bucket rate limiting (20 requests per minute per IP).
+// Note: Vercel serverless functions are ephemeral instances; this in-memory bucket protects against
+// bursts within the same warm container instance. Edge WAF / Vercel firewall rate-limiting rules are
+// the durable platform-level control.
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const RATE_LIMIT_MAX_REQUESTS = 20;
+const ipBuckets = new Map();
+
+function checkRateLimit(ip) {
+  const now = Date.now();
+  let bucket = ipBuckets.get(ip);
+  if (!bucket || now - bucket.windowStart > RATE_LIMIT_WINDOW_MS) {
+    bucket = { windowStart: now, count: 1 };
+    ipBuckets.set(ip, bucket);
+    return true;
+  }
+  if (bucket.count >= RATE_LIMIT_MAX_REQUESTS) {
+    return false;
+  }
+  bucket.count += 1;
+  return true;
+}
+
+if (typeof setInterval !== 'undefined') {
+  setInterval(() => {
+    const now = Date.now();
+    for (const [ip, bucket] of ipBuckets.entries()) {
+      if (now - bucket.windowStart > RATE_LIMIT_WINDOW_MS) {
+        ipBuckets.delete(ip);
+      }
+    }
+  }, 5 * 60 * 1000).unref?.();
+}
+
 export async function handleReportView(shareId) {
   const parseResult = shareIdSchema.safeParse(shareId);
   if (!parseResult.success) {
@@ -26,7 +60,7 @@ export async function handleReportView(shareId) {
   // 1. Fetch WhatsApp Report Share record
   const { data: share, error: shareErr } = await adminClient
     .from('whatsapp_report_shares')
-    .select('id, student_id, school_id, semester_id, class_id, status, parent_name, parent_phone, created_at')
+    .select('id, student_id, school_id, semester_id, class_id, status, parent_name, parent_phone, created_at, expires_at')
     .eq('id', cleanShareId)
     .maybeSingle();
 
@@ -41,6 +75,10 @@ export async function handleReportView(shareId) {
 
   if (share.status && share.status !== 'sent' && share.status !== 'delivered' && share.status !== 'active') {
     throw new Error('This report card link is no longer active');
+  }
+
+  if (share.expires_at && new Date(share.expires_at).getTime() < Date.now()) {
+    throw new Error('This report card link has expired');
   }
 
   const { student_id, school_id, semester_id, class_id } = share;
@@ -160,8 +198,8 @@ export async function handleReportView(shareId) {
       shareId: cleanShareId,
       shareStatus: share.status,
       sharedAt: share.created_at,
+      expiresAt: share.expires_at,
       student: {
-        id: student.id,
         first_name: student.first_name,
         last_name: student.last_name,
         other_names: student.other_names,
@@ -171,7 +209,6 @@ export async function handleReportView(shareId) {
         guardian_phone: share.parent_phone || student.guardian_phone,
       },
       school: {
-        id: school.id,
         name: school.name,
         motto: school.motto,
         address: school.address,
@@ -180,12 +217,10 @@ export async function handleReportView(shareId) {
         logo_url: schoolLogo,
       },
       semester: {
-        id: semester?.id || semester_id,
         name: semester?.name || 'Semester',
         academic_year: semester?.academic_years?.name || '',
       },
       class: {
-        id: cls?.id || class_id,
         name: cls?.name || 'Class',
         section: cls?.section || null,
       },
@@ -198,7 +233,15 @@ export async function handleReportView(shareId) {
 }
 
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+  const reqOrigin = req.headers?.origin;
+  if (reqOrigin && allowedOrigins.includes(reqOrigin)) {
+    res.setHeader('Access-Control-Allow-Origin', reqOrigin);
+    res.setHeader('Vary', 'Origin');
+  }
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
@@ -211,6 +254,15 @@ export default async function handler(req, res) {
     res.statusCode = 405;
     res.setHeader('Content-Type', 'application/json');
     return res.end(JSON.stringify({ error: 'Method not allowed' }));
+  }
+
+  // Rate limiting check: 20 req/min/IP
+  const forwarded = req.headers?.['x-forwarded-for'];
+  const ip = (typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : null) || req.socket?.remoteAddress || 'unknown';
+  if (!checkRateLimit(ip)) {
+    res.statusCode = 429;
+    res.setHeader('Content-Type', 'application/json');
+    return res.end(JSON.stringify({ error: 'Too many requests. Please try again later.' }));
   }
 
   try {

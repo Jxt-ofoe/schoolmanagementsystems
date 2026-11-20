@@ -7,8 +7,9 @@ interface ReportCardPayload {
   shareId: string;
   shareStatus: string;
   sharedAt: string;
+  expiresAt?: string;
   student: {
-    id: string;
+    id?: string;
     first_name: string;
     last_name: string;
     other_names: string | null;
@@ -18,7 +19,7 @@ interface ReportCardPayload {
     guardian_phone: string | null;
   };
   school: {
-    id: string;
+    id?: string;
     name: string;
     motto: string | null;
     address: string | null;
@@ -27,12 +28,12 @@ interface ReportCardPayload {
     logo_url: string | null;
   };
   semester: {
-    id: string;
+    id?: string;
     name: string;
     academic_year: string;
   };
   class: {
-    id: string;
+    id?: string;
     name: string;
     section: string | null;
   };
